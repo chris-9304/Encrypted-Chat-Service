@@ -3,17 +3,22 @@
 #include <ev/core/error.h>
 #include <ev/core/types.h>
 #include <vector>
+#include <string>
 
 namespace ev::discovery {
 
 struct LocalAdvertisement {
     ev::core::PublicKey signing_public_key;
     uint16_t port;
+    std::string display_name;
+    std::string fingerprint;
 };
 
 struct DiscoveredPeer {
     ev::core::PublicKey signing_public_key;
     ev::core::Endpoint endpoint;
+    std::string display_name;
+    std::string fingerprint;
 };
 
 class DiscoveryService {
