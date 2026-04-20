@@ -21,7 +21,7 @@ public:
     void request_shutdown();
 
 private:
-    // TODO(M1.x): FTXUI ScreenInteractive components
+    // Deferred to Phase 2 (FTXUI disabled for Demo REPL)
 };
 
 } // namespace ev::ui

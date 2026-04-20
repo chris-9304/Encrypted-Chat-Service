@@ -17,7 +17,7 @@ public:
 private:
     MessageStore() = default;
     
-    // TODO(M1.x): SQLite connection
+    // Deferred to Phase 2 (SQLite disabled for Demo REPL)
 };
 
 } // namespace ev::store
