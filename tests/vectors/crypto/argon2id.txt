@@ -1,0 +1,3 @@
+# Argon2id reference stream vector
+# Format: passphrase:salt:lanes:memory_kib:iterations:out_len:expected_hash
+password:somesalt:1:65536:3:32:ee5d7a6bc66a416adbd4be82d02c7104b2aee056bdcc3ad8b5f3ee6bdef0cdd3
