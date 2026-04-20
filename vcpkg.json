@@ -1,0 +1,19 @@
+{
+  "name": "encryptiv",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "libsodium",
+    "boost-asio",
+    "boost-program-options",
+    "protobuf",
+    "sqlite3",
+    "spdlog",
+    "fmt",
+    {
+      "name": "catch2",
+      "version>=": "3.0.0"
+    },
+    "ftxui",
+    "wil"
+  ]
+}
