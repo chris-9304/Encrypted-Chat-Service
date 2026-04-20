@@ -1,0 +1,18 @@
+# Build and dependencies
+build/
+vcpkg_installed/
+
+# VS and IDEs
+.vs/
+.vscode/
+*.user
+*.suo
+.idea/
+CMakeUserPresets.json
+
+# Tooling
+compile_commands.json
+.cache/
+.clangd/
+*.log
+sanitizer*.log

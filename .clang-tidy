@@ -1,0 +1,24 @@
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  cppcoreguidelines-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  security-*,
+  -modernize-use-trailing-return-type,
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -fuchsia-*,
+  -google-*,
+  -llvm-*,
+  -altera-*,
+  -abseil-*
+
+WarningsAsErrors: >
+  bugprone-exception-escape,
+  cert-*,
+  bugprone-unchecked-optional-access
+
+FormatStyle: file
