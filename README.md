@@ -1,5 +1,7 @@
 # EncryptiV
 
+> **👉 STOP HERE: Check out [docs/DEMO.md](docs/DEMO.md) for the fast-track CLI guide mapping out the precise architecture demo!**
+
 A Windows-native, terminal-based, end-to-end encrypted peer-to-peer LAN messenger.
 
 ## Quick Links
