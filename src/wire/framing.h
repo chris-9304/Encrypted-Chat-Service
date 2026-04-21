@@ -11,6 +11,8 @@ namespace ev::wire {
 
 enum class MessageType : uint8_t { Handshake = 1, AppMessage = 2 };
 
+constexpr size_t kMaxFrameBodySize = 1024 * 1024; // 1 MiB
+
 struct Frame {
     MessageType type;
     std::vector<std::byte> payload;

@@ -111,13 +111,13 @@ ev::core::Result<void> Session::do_handshake_initiator(const ev::identity::Ident
     memcpy(full.data() + 4, body.value().data(), len);
     
     auto f_in = decode(std::span<const std::byte>(full));
-    if (!f_in.has_value() || f_in->type != MessageType::Handshake) return std::unexpected(Error{ErrorCode::NotImplemented, "Bad Handshake frame", std::nullopt});
+    if (!f_in.has_value() || f_in->type != MessageType::Handshake) return std::unexpected(Error{ErrorCode::FramingError, "Bad Handshake frame", std::nullopt});
     
     auto hs_in = decode_handshake(f_in->payload);
     if (!hs_in.has_value()) return std::unexpected(hs_in.error());
 
     if (!Crypto::verify_detached(hs_in->ed25519_pub, std::span<const std::byte>(reinterpret_cast<const std::byte*>(hs_in->x25519_pub.bytes.data()), 32), hs_in->sig_over_x25519).value()) {
-         return std::unexpected(Error{ErrorCode::NotImplemented, "Signature mismatch", std::nullopt});
+         return std::unexpected(Error{ErrorCode::AuthenticationFailed, "Signature mismatch", std::nullopt});
     }
 
     auto shared = self.agree(hs_in->x25519_pub);
@@ -147,13 +147,13 @@ ev::core::Result<void> Session::do_handshake_responder(const ev::identity::Ident
     memcpy(full.data() + 4, body.value().data(), len);
     
     auto f_in = decode(std::span<const std::byte>(full));
-    if (!f_in.has_value() || f_in->type != MessageType::Handshake) return std::unexpected(Error{ErrorCode::NotImplemented, "Bad Handshake frame", std::nullopt});
+    if (!f_in.has_value() || f_in->type != MessageType::Handshake) return std::unexpected(Error{ErrorCode::FramingError, "Bad Handshake frame", std::nullopt});
     
     auto hs_in = decode_handshake(f_in->payload);
     if (!hs_in.has_value()) return std::unexpected(hs_in.error());
 
     if (!Crypto::verify_detached(hs_in->ed25519_pub, std::span<const std::byte>(reinterpret_cast<const std::byte*>(hs_in->x25519_pub.bytes.data()), 32), hs_in->sig_over_x25519).value()) {
-         return std::unexpected(Error{ErrorCode::NotImplemented, "Signature mismatch", std::nullopt});
+         return std::unexpected(Error{ErrorCode::AuthenticationFailed, "Signature mismatch", std::nullopt});
     }
 
     state_ = SessionState::HandshakeReceived;
@@ -184,7 +184,7 @@ ev::core::Result<void> Session::do_handshake_responder(const ev::identity::Ident
 }
 
 ev::core::Result<void> Session::send_text(const std::string& body) {
-    if (state_ != SessionState::Established) return std::unexpected(Error{ErrorCode::NotImplemented, "Not established", std::nullopt});
+    if (state_ != SessionState::Established) return std::unexpected(Error{ErrorCode::TransportError, "Not established", std::nullopt});
     
     Nonce nonce = build_nonce(direction_send_, send_counter_);
     std::vector<std::byte> aad; // empty aad
@@ -214,7 +214,7 @@ ev::core::Result<void> Session::send_text(const std::string& body) {
 }
 
 ev::core::Result<std::string> Session::recv_text() {
-    if (state_ != SessionState::Established) return std::unexpected(Error{ErrorCode::NotImplemented, "Not established", std::nullopt});
+    if (state_ != SessionState::Established) return std::unexpected(Error{ErrorCode::TransportError, "Not established", std::nullopt});
     
     auto head = transport_->receive(4);
     if (!head.has_value()) return std::unexpected(head.error());
@@ -230,7 +230,7 @@ ev::core::Result<std::string> Session::recv_text() {
     memcpy(full.data() + 4, body.value().data(), len);
     
     auto f_in = decode(std::span<const std::byte>(full));
-    if (!f_in.has_value() || f_in->type != MessageType::AppMessage) return std::unexpected(Error{ErrorCode::NotImplemented, "Bad App frame", std::nullopt});
+    if (!f_in.has_value() || f_in->type != MessageType::AppMessage) return std::unexpected(Error{ErrorCode::FramingError, "Bad App frame", std::nullopt});
     
     auto p_in = decode_app(f_in->payload);
     if (!p_in.has_value()) return std::unexpected(p_in.error());
@@ -238,7 +238,7 @@ ev::core::Result<std::string> Session::recv_text() {
     if (p_in->counter != recv_counter_) {
         state_ = SessionState::Closed;
         transport_->close();
-        return std::unexpected(Error{ErrorCode::NotImplemented, "Counter mismatch", std::nullopt});
+        return std::unexpected(Error{ErrorCode::CounterMismatch, "Counter mismatch", std::nullopt});
     }
 
     Nonce nonce = build_nonce(direction_recv_, p_in->counter);
