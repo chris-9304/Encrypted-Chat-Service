@@ -14,16 +14,20 @@ public:
 
     ~TcpTransport() override;
 
-    ev::core::Result<void> send(std::span<const std::byte> data) override;
-    ev::core::Result<std::vector<std::byte>> receive(size_t exact_bytes) override;
-    ev::core::Result<void> close() override;
-    bool is_open() const override;
+    ev::core::Result<void>                     send(std::span<const std::byte> data) override;
+    ev::core::Result<std::vector<std::byte>>   receive(size_t exact_bytes) override;
+    ev::core::Result<void>                     close() override;
+    bool                                       is_open() const override;
 
 private:
-    TcpTransport(boost::asio::ip::tcp::socket socket);
-    boost::asio::io_context io_context_;
-    boost::asio::ip::tcp::socket socket_;
-    bool is_open_{true};
+    // io_context must outlive the socket — store it on the heap so that the
+    // static factory can move-construct a TcpTransport safely.
+    explicit TcpTransport(std::unique_ptr<boost::asio::io_context> io,
+                          boost::asio::ip::tcp::socket socket);
+
+    std::unique_ptr<boost::asio::io_context> io_context_;
+    boost::asio::ip::tcp::socket             socket_;
+    bool                                     is_open_{true};
 };
 
 } // namespace ev::transport

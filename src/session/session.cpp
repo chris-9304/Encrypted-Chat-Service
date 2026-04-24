@@ -1,6 +1,10 @@
 #include "session.h"
 #include <ev/crypto/crypto.h>
 #include <ev/wire/framing.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
 #include <cstring>
 #include <algorithm>
 #include <iostream>

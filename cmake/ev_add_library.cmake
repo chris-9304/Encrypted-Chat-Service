@@ -6,6 +6,7 @@ function(ev_add_library)
 
     target_include_directories(${ARG_NAME} PUBLIC
         $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
+        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
     )
 
     if(ARG_DEPS)

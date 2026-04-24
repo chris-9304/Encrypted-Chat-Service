@@ -16,6 +16,10 @@ include(warnings)
 include(msvc_options)
 include(ev_add_library)
 
+# Make <ev/...> angle-bracket includes available to all targets in the tree.
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src")
+
 # Apply global options
 ev_apply_msvc_options()
 
