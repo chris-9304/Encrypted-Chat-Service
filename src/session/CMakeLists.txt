@@ -9,6 +9,7 @@ ev_add_library(
     DEPS 
         core
         crypto
+        identity
         wire
         transport
 )

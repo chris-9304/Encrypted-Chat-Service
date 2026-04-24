@@ -10,7 +10,13 @@ namespace ev::core {
 enum class ErrorCode {
     Success = 0,
     NotImplemented,
-    // TODO(M1.x): Add more error codes as needed
+    CryptoError,
+    AuthenticationFailed,
+    DecryptionFailed,
+    CounterMismatch,
+    FramingError,
+    TransportError,
+    StorageError,
 };
 
 struct Error {

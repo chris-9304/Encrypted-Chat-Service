@@ -8,4 +8,5 @@ ev_add_library(
         crypto.cpp
     DEPS 
         core
+        sodium
 )

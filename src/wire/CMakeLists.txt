@@ -6,4 +6,5 @@ ev_add_library(
         framing.cpp
     DEPS 
         core
+        ws2_32
 )

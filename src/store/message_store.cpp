@@ -1,4 +1,5 @@
 #include "message_store.h"
+#include <vector>
 
 namespace ev::store {
 

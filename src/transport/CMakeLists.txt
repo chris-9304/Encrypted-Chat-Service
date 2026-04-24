@@ -7,4 +7,5 @@ ev_add_library(
         tcp_transport.cpp
     DEPS 
         core
+        Boost::asio
 )

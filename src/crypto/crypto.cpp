@@ -17,7 +17,7 @@ ev::core::Result<void> Crypto::initialize() {
     });
 
     if (init_failure) {
-        return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "Libsodium init failed", std::nullopt});
+        return std::unexpected(ev::core::Error{ev::core::ErrorCode::CryptoError, "Libsodium init failed", std::nullopt});
     }
     return {};
 }
@@ -25,7 +25,7 @@ ev::core::Result<void> Crypto::initialize() {
 ev::core::Result<KeyPair> Crypto::kx_keypair() {
     KeyPair kp;
     if (crypto_kx_keypair(kp.public_key.bytes.data(), kp.private_key.data()) != 0) {
-        return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "kx_keypair failed", std::nullopt});
+        return std::unexpected(ev::core::Error{ev::core::ErrorCode::CryptoError, "kx_keypair failed", std::nullopt});
     }
     return kp;
 }
@@ -33,10 +33,10 @@ ev::core::Result<KeyPair> Crypto::kx_keypair() {
 ev::core::Result<SharedSecret> Crypto::kx_agree(const SecureBuffer<32>& sk, const ev::core::PublicKey& peer_pk) {
     SharedSecret shared;
     if (crypto_scalarmult(shared.secret.data(), sk.data(), peer_pk.bytes.data()) != 0) {
-        return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "kx_agree failed", std::nullopt});
+        return std::unexpected(ev::core::Error{ev::core::ErrorCode::CryptoError, "kx_agree failed", std::nullopt});
     }
     if (sodium_is_zero(shared.secret.data(), shared.secret.size())) {
-        return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "kx_agree Low-order point", std::nullopt});
+        return std::unexpected(ev::core::Error{ev::core::ErrorCode::CryptoError, "kx_agree Low-order point", std::nullopt});
     }
     return shared;
 }
@@ -44,7 +44,7 @@ ev::core::Result<SharedSecret> Crypto::kx_agree(const SecureBuffer<32>& sk, cons
 ev::core::Result<Ed25519KeyPair> Crypto::ed25519_keypair() {
     Ed25519KeyPair kp;
     if (crypto_sign_keypair(kp.public_key.bytes.data(), kp.private_key.data()) != 0) {
-        return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "ed25519_keypair failed", std::nullopt});
+        return std::unexpected(ev::core::Error{ev::core::ErrorCode::CryptoError, "ed25519_keypair failed", std::nullopt});
     }
     return kp;
 }
@@ -53,7 +53,7 @@ ev::core::Result<ev::core::Signature> Crypto::sign_detached(const SecureBuffer<6
     ev::core::Signature sig;
     unsigned long long sig_len;
     if (crypto_sign_detached(sig.bytes.data(), &sig_len, reinterpret_cast<const uint8_t*>(msg.data()), msg.size(), sk.data()) != 0) {
-        return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "sign_detached failed", std::nullopt});
+        return std::unexpected(ev::core::Error{ev::core::ErrorCode::CryptoError, "sign_detached failed", std::nullopt});
     }
     return sig;
 }
@@ -77,7 +77,7 @@ ev::core::Result<std::vector<std::byte>> Crypto::aead_encrypt(
             reinterpret_cast<const uint8_t*>(plaintext.data()), plaintext.size(),
             aad.empty() ? nullptr : reinterpret_cast<const uint8_t*>(aad.data()), aad.size(),
             nullptr, reinterpret_cast<const uint8_t*>(nonce.data()), key.data()) != 0) {
-        return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "AEAD encrypt failed", std::nullopt});
+        return std::unexpected(ev::core::Error{ev::core::ErrorCode::CryptoError, "AEAD encrypt failed", std::nullopt});
     }
     ct.resize(ct_len);
     return ct;
@@ -88,7 +88,7 @@ ev::core::Result<std::vector<std::byte>> Crypto::aead_decrypt(
     std::span<const std::byte> aad, std::span<const std::byte> ciphertext) {
     
     if (ciphertext.size() < crypto_aead_xchacha20poly1305_ietf_ABYTES) {
-        return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "AEAD ciphertext too short", std::nullopt});
+        return std::unexpected(ev::core::Error{ev::core::ErrorCode::CryptoError, "AEAD ciphertext too short", std::nullopt});
     }
     
     std::vector<std::byte> pt(ciphertext.size() - crypto_aead_xchacha20poly1305_ietf_ABYTES);
@@ -100,7 +100,7 @@ ev::core::Result<std::vector<std::byte>> Crypto::aead_decrypt(
             reinterpret_cast<const uint8_t*>(ciphertext.data()), ciphertext.size(),
             aad.empty() ? nullptr : reinterpret_cast<const uint8_t*>(aad.data()), aad.size(),
             reinterpret_cast<const uint8_t*>(nonce.data()), key.data()) != 0) {
-        return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "AEAD decrypt MAC failed", std::nullopt});
+        return std::unexpected(ev::core::Error{ev::core::ErrorCode::DecryptionFailed, "AEAD decrypt MAC failed", std::nullopt});
     }
     pt.resize(pt_len);
     return pt;
@@ -115,7 +115,7 @@ ev::core::Result<SecureBuffer<32>> Crypto::hkdf_sha256(
             prk.data(),
             salt.empty() ? nullptr : reinterpret_cast<const uint8_t*>(salt.data()), salt.size(),
             reinterpret_cast<const uint8_t*>(ikm.data()), ikm.size()) != 0) {
-        return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "HKDF extract failed", std::nullopt});
+        return std::unexpected(ev::core::Error{ev::core::ErrorCode::CryptoError, "HKDF extract failed", std::nullopt});
     }
     
     SecureBuffer<32> okm;
@@ -123,7 +123,7 @@ ev::core::Result<SecureBuffer<32>> Crypto::hkdf_sha256(
             okm.data(), okm.size(),
             reinterpret_cast<const char*>(info.data()), info.size(),
             prk.data()) != 0) {
-        return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "HKDF expand failed", std::nullopt});
+        return std::unexpected(ev::core::Error{ev::core::ErrorCode::CryptoError, "HKDF expand failed", std::nullopt});
     }
     
     return okm;

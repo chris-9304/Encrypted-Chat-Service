@@ -4,11 +4,11 @@
 
 namespace ev::wire {
 
-constexpr size_t kMaxFrameSize = 1024 * 1024; // 1 MiB
+
 
 ev::core::Result<std::vector<std::byte>> encode(const Frame& f) {
-    if (f.payload.size() > kMaxFrameSize - 5) {
-        return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "Frame size exceeds 1 MiB", std::nullopt});
+    if (f.payload.size() > kMaxFrameBodySize - 5) {
+        return std::unexpected(ev::core::Error{ev::core::ErrorCode::FramingError, "Frame size exceeds 1 MiB", std::nullopt});
     }
 
     uint32_t len = static_cast<uint32_t>(f.payload.size() + 1); // +1 for type
@@ -24,19 +24,19 @@ ev::core::Result<std::vector<std::byte>> encode(const Frame& f) {
 }
 
 ev::core::Result<Frame> decode(std::span<const std::byte> bytes) {
-    if (bytes.size() < 5) return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "Underflow", std::nullopt});
+    if (bytes.size() < 5) return std::unexpected(ev::core::Error{ev::core::ErrorCode::FramingError, "Underflow", std::nullopt});
     
     uint32_t len_be;
     std::memcpy(&len_be, bytes.data(), 4);
     uint32_t len = ntohl(len_be);
 
-    if (len > kMaxFrameSize) return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "Frame size exceeds 1 MiB", std::nullopt});
-    if (bytes.size() < 4 + len) return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "Incomplete frame", std::nullopt});
+    if (len > kMaxFrameBodySize) return std::unexpected(ev::core::Error{ev::core::ErrorCode::FramingError, "Frame size exceeds 1 MiB", std::nullopt});
+    if (bytes.size() < 4 + len) return std::unexpected(ev::core::Error{ev::core::ErrorCode::FramingError, "Incomplete frame", std::nullopt});
     
     Frame f;
     f.type = static_cast<MessageType>(bytes[4]);
     if (f.type != MessageType::Handshake && f.type != MessageType::AppMessage) {
-        return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "Invalid frame type", std::nullopt});
+        return std::unexpected(ev::core::Error{ev::core::ErrorCode::FramingError, "Invalid frame type", std::nullopt});
     }
 
     f.payload = std::vector<std::byte>(bytes.begin() + 5, bytes.begin() + 4 + len);
@@ -44,7 +44,7 @@ ev::core::Result<Frame> decode(std::span<const std::byte> bytes) {
 }
 
 ev::core::Result<std::vector<std::byte>> encode_handshake(const HandshakePayload& h) {
-    if (h.display_name.length() > 64) return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "Display name too long", std::nullopt});
+    if (h.display_name.length() > 64) return std::unexpected(ev::core::Error{ev::core::ErrorCode::FramingError, "Display name too long", std::nullopt});
     
     std::vector<std::byte> out;
     out.insert(out.end(), reinterpret_cast<const std::byte*>(h.x25519_pub.bytes.data()), reinterpret_cast<const std::byte*>(h.x25519_pub.bytes.data() + 32));
@@ -60,7 +60,7 @@ ev::core::Result<std::vector<std::byte>> encode_handshake(const HandshakePayload
 }
 
 ev::core::Result<HandshakePayload> decode_handshake(std::span<const std::byte> bytes) {
-    if (bytes.size() < 32 + 32 + 64 + 2) return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "Handshake payload too short", std::nullopt});
+    if (bytes.size() < 32 + 32 + 64 + 2) return std::unexpected(ev::core::Error{ev::core::ErrorCode::FramingError, "Handshake payload too short", std::nullopt});
     
     HandshakePayload h;
     std::memcpy(h.x25519_pub.bytes.data(), bytes.data(), 32);
@@ -71,8 +71,8 @@ ev::core::Result<HandshakePayload> decode_handshake(std::span<const std::byte> b
     std::memcpy(&name_len_be, bytes.data() + 128, 2);
     uint16_t name_len = ntohs(name_len_be);
     
-    if (name_len > 64) return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "Display name too long", std::nullopt});
-    if (bytes.size() < 130 + name_len) return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "Handshake payload truncated name", std::nullopt});
+    if (name_len > 64) return std::unexpected(ev::core::Error{ev::core::ErrorCode::FramingError, "Display name too long", std::nullopt});
+    if (bytes.size() < 130 + name_len) return std::unexpected(ev::core::Error{ev::core::ErrorCode::FramingError, "Handshake payload truncated name", std::nullopt});
     
     h.display_name = std::string(reinterpret_cast<const char*>(bytes.data() + 130), name_len);
     return h;
@@ -87,7 +87,7 @@ ev::core::Result<std::vector<std::byte>> encode_app(const AppPayload& p) {
 }
 
 ev::core::Result<AppPayload> decode_app(std::span<const std::byte> bytes) {
-    if (bytes.size() < 8) return std::unexpected(ev::core::Error{ev::core::ErrorCode::NotImplemented, "App payload too short", std::nullopt});
+    if (bytes.size() < 8) return std::unexpected(ev::core::Error{ev::core::ErrorCode::FramingError, "App payload too short", std::nullopt});
     
     AppPayload p;
     uint64_t counter_be;

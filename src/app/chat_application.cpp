@@ -82,8 +82,10 @@ void ChatApplication::discovery_thread_func() {
 ev::core::Result<void> ChatApplication::run() {
     Crypto::initialize();
     auto id_res = Identity::generate();
-    if (!id_res.has_value()) return std::unexpected(Error{ErrorCode::NotImplemented, "Identity generation failed", std::nullopt});
+    if (!id_res.has_value()) return std::unexpected(Error{ErrorCode::CryptoError, "Identity generation failed", std::nullopt});
     identity_ = std::make_unique<Identity>(std::move(id_res.value()));
+
+    // FIXME(M1.5): protect peer_dir_ with session_mutex_ when MessageStore is wired in
 
     std::cout << "Identity Generated. FP: " << identity_->fingerprint() << "\n";
     
