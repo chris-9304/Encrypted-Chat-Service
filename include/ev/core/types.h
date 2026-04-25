@@ -30,6 +30,12 @@ struct FileId {
     bool operator==(const FileId&) const = default;
 };
 
+struct GroupId {
+    std::array<uint8_t, 16> bytes{};
+    bool operator==(const GroupId&) const = default;
+    bool operator<(const GroupId& o) const noexcept { return bytes < o.bytes; }
+};
+
 // 32-byte public key (Ed25519 or X25519).
 struct PublicKey {
     std::array<uint8_t, 32> bytes{};

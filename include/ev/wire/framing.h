@@ -15,11 +15,14 @@ namespace ev::wire {
 // length covers type + payload bytes.
 
 enum class MessageType : uint8_t {
-    Handshake  = 1,
-    AppMessage = 2,
+    Handshake    = 1,
+    AppMessage   = 2,
     // Phase 2
-    FileChunk  = 3,
-    Receipt    = 4,
+    FileChunk    = 3,
+    Receipt      = 4,
+    // Phase 3
+    GroupMessage = 5, // broadcast group ciphertext
+    GroupOp      = 6, // group lifecycle (create/invite/leave/kick)
 };
 
 // Maximum on-wire frame body size (type + payload).  1 MiB hard limit.
@@ -56,6 +59,7 @@ struct HandshakePayload {
     ev::core::Signature sig_over_x25519;
     ev::core::PublicKey dr_pub;           // DR ephemeral key (Phase 2)
     ev::core::Signature sig_over_dr;      // authenticates dr_pub
+    uint8_t             version{kWireVersion}; // wire protocol version
     std::string         display_name;     // UTF-8, max 64 chars
 };
 
@@ -153,6 +157,60 @@ struct ReceiptPayload {
 ev::core::Result<std::vector<std::byte>> encode_receipt(const ReceiptPayload& r);
 ev::core::Result<ReceiptPayload>          decode_receipt(std::span<const std::byte> bytes);
 
+// ── Group message payload (Phase 3) ──────────────────────────────────────────
+// Sent as a GroupMessage frame to all group members simultaneously.
+//
+// On-wire:
+//   group_id        [16]
+//   sender_sign_pub [32]  -- identifies the sender's Sender Key chain
+//   message_number  [4 BE]
+//   ct_len          [4 BE]
+//   ciphertext      [ct_len]  -- AEAD with per-message key from sender chain
+//   signature       [64]  -- Ed25519 sig(group_id||sender_pub||msg_num||ct)
+
+struct GroupMessagePayload {
+    ev::core::GroupId      group_id;
+    ev::core::PublicKey    sender_sign_pub; // sender's Sender Key signing pub
+    uint32_t               message_number{0};
+    std::vector<std::byte> ciphertext;
+    ev::core::Signature    signature;
+};
+
+// ── Group operation payload (Phase 3) ─────────────────────────────────────────
+// Sent via pairwise DR AppMessage as inner type GroupOp.
+// Carries group lifecycle events: create, invite, leave, kick.
+//
+// On-wire (inside AEAD plaintext, after GroupOp inner type byte):
+//   op_type            [1]   GroupOpType enum
+//   group_id           [16]
+//   group_name_len     [2 BE]
+//   group_name         [...]  (only in Create/Invite ops)
+//   member_key         [32]   affected member signing pub (Invite/Kick/Leave)
+//   chain_key          [32]   sender's current chain key (Invite only)
+//   chain_key_counter  [4 BE] sender's current chain counter (Invite only)
+
+enum class GroupOpType : uint8_t {
+    Create = 0x01, // initiator creates group, shares with first invitee
+    Invite = 0x02, // existing member invites another; includes sender chain key
+    Leave  = 0x03, // member announces departure
+    Kick   = 0x04, // admin removes a member (future: admin-only enforcement)
+};
+
+struct GroupOpPayload {
+    GroupOpType         op;
+    ev::core::GroupId   group_id;
+    std::string         group_name;       // filled for Create and Invite ops
+    ev::core::PublicKey member_key;       // signing pub of affected member
+    std::array<uint8_t, 32> chain_key{}; // sender's chain key (Invite only)
+    uint32_t            chain_counter{0}; // sender's chain counter (Invite only)
+};
+
+ev::core::Result<std::vector<std::byte>> encode_group_message(const GroupMessagePayload& g);
+ev::core::Result<GroupMessagePayload>     decode_group_message(std::span<const std::byte> bytes);
+
+ev::core::Result<std::vector<std::byte>> encode_group_op(const GroupOpPayload& g);
+ev::core::Result<GroupOpPayload>          decode_group_op(std::span<const std::byte> bytes);
+
 // ── Inner plaintext types ─────────────────────────────────────────────────────
 // After AEAD decryption of AppPayload::ciphertext, the first byte is the type.
 
@@ -161,6 +219,8 @@ enum class InnerType : uint8_t {
     FileMetadata = 0x01,
     Receipt      = 0x02,
     Typing       = 0x03, // Phase 2 typing indicator
+    GroupOp      = 0x04, // Phase 3: group operation (sent via pairwise DR)
+    DeviceLink   = 0x05, // Phase 3: device linking certificate
 };
 
 } // namespace ev::wire
