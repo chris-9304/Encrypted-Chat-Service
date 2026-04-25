@@ -1,13 +1,8 @@
 ev_add_library(
     NAME discovery
-    HEADERS 
-        discovery_service.h
-        mdns_discovery_win32.h
-        loopback_discovery.h
-    SOURCES 
-        mdns_discovery_win32.cpp
+    SOURCES
         loopback_discovery.cpp
-    DEPS 
+    DEPS
         core
         transport
 )

@@ -1,12 +1,8 @@
 ev_add_library(
     NAME crypto
-    HEADERS 
-        crypto.h
-        secure_buffer.h
-        types.h
-    SOURCES 
+    SOURCES
         crypto.cpp
-    DEPS 
+    DEPS
         core
         sodium
 )

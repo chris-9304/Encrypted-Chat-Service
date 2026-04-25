@@ -1,10 +1,8 @@
 ev_add_library(
     NAME wire
-    HEADERS 
-        framing.h
-    SOURCES 
+    SOURCES
         framing.cpp
-    DEPS 
+    DEPS
         core
         ws2_32
 )

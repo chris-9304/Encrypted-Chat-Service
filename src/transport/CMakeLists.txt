@@ -1,11 +1,10 @@
 ev_add_library(
     NAME transport
-    HEADERS 
-        transport.h
-        tcp_transport.h
-    SOURCES 
+    SOURCES
         tcp_transport.cpp
-    DEPS 
+        mailbox_transport.cpp
+    DEPS
         core
-        Boost::asio
+        Boost::boost
+        ws2_32
 )

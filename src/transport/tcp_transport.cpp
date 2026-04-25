@@ -1,4 +1,5 @@
-#include "tcp_transport.h"
+#include <ev/transport/tcp_transport.h>
+#include <boost/asio.hpp>
 
 namespace ev::transport {
 
@@ -7,85 +8,95 @@ TcpTransport::TcpTransport(std::unique_ptr<boost::asio::io_context> io,
     : io_context_(std::move(io)), socket_(std::move(socket)), is_open_(true) {}
 
 TcpTransport::~TcpTransport() {
-    close();
+    static_cast<void>(close());
 }
 
-ev::core::Result<std::unique_ptr<Transport>> TcpTransport::connect(const ev::core::Endpoint& endpoint) {
+ev::core::Result<std::unique_ptr<Transport>> TcpTransport::connect(
+    const ev::core::Endpoint& endpoint) {
     try {
         auto io = std::make_unique<boost::asio::io_context>();
         boost::asio::ip::tcp::resolver resolver(*io);
-        auto results = resolver.resolve(endpoint.address, std::to_string(endpoint.port));
+        auto results = resolver.resolve(endpoint.address,
+                                        std::to_string(endpoint.port));
 
         boost::asio::ip::tcp::socket socket(*io);
-        boost::asio::connect(socket, results);
+        // Set TCP_NODELAY: reduce latency for small encrypted frames.
+        static_cast<void>(boost::asio::connect(socket, results));
+        socket.set_option(boost::asio::ip::tcp::no_delay(true));
 
         return std::unique_ptr<Transport>(
             new TcpTransport(std::move(io), std::move(socket)));
     } catch (const boost::system::system_error& e) {
-        return std::unexpected(ev::core::Error{
+        return std::unexpected(ev::core::Error::from(
             ev::core::ErrorCode::TransportError,
-            std::string("TCP connect failed: ") + e.what(),
-            std::nullopt
-        });
+            std::string("TCP connect failed: ") + e.what()));
     }
 }
 
-ev::core::Result<std::unique_ptr<Transport>> TcpTransport::accept_from(uint16_t port) {
+ev::core::Result<std::unique_ptr<Transport>> TcpTransport::accept_from(
+    uint16_t port) {
     try {
         auto io = std::make_unique<boost::asio::io_context>();
         boost::asio::ip::tcp::acceptor acceptor(
-            *io, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port));
+            *io,
+            boost::asio::ip::tcp::endpoint(
+                boost::asio::ip::tcp::v4(), port));
+
+        // Reuse address so restarts don't hit TIME_WAIT.
+        acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+
         boost::asio::ip::tcp::socket socket(*io);
         acceptor.accept(socket);
+        socket.set_option(boost::asio::ip::tcp::no_delay(true));
 
         return std::unique_ptr<Transport>(
             new TcpTransport(std::move(io), std::move(socket)));
     } catch (const boost::system::system_error& e) {
-        return std::unexpected(ev::core::Error{
+        return std::unexpected(ev::core::Error::from(
             ev::core::ErrorCode::TransportError,
-            std::string("TCP accept failed: ") + e.what(),
-            std::nullopt
-        });
+            std::string("TCP accept failed: ") + e.what()));
     }
 }
 
-ev::core::Result<void> TcpTransport::send(std::span<const std::byte> data) {
+ev::core::Result<void> TcpTransport::send(
+    std::span<const std::byte> data) {
+
     if (!is_open_) {
-        return std::unexpected(ev::core::Error{
-            ev::core::ErrorCode::TransportError, "Socket closed", std::nullopt});
+        return std::unexpected(ev::core::Error::from(
+            ev::core::ErrorCode::TransportError, "Socket closed"));
     }
     try {
-        boost::asio::write(socket_, boost::asio::buffer(data.data(), data.size()));
+        boost::asio::write(socket_,
+                           boost::asio::buffer(data.data(), data.size()));
         return {};
     } catch (const boost::system::system_error& e) {
-        close();
-        return std::unexpected(ev::core::Error{
+        static_cast<void>(close());
+        return std::unexpected(ev::core::Error::from(
             ev::core::ErrorCode::TransportError,
-            std::string("Send failed: ") + e.what(),
-            std::nullopt
-        });
+            std::string("TCP send failed: ") + e.what()));
     }
 }
 
-ev::core::Result<std::vector<std::byte>> TcpTransport::receive(size_t exact_bytes) {
+ev::core::Result<std::vector<std::byte>> TcpTransport::receive(
+    size_t exact_bytes) {
+
     if (!is_open_) {
-        return std::unexpected(ev::core::Error{
-            ev::core::ErrorCode::TransportError, "Socket closed", std::nullopt});
+        return std::unexpected(ev::core::Error::from(
+            ev::core::ErrorCode::TransportError, "Socket closed"));
     }
 
     std::vector<std::byte> buf(exact_bytes);
     try {
         if (exact_bytes > 0) {
-            boost::asio::read(socket_, boost::asio::buffer(buf.data(), exact_bytes));
+            boost::asio::read(socket_,
+                              boost::asio::buffer(buf.data(), exact_bytes));
         }
         return buf;
     } catch (const boost::system::system_error& e) {
-        close();
-        return std::unexpected(ev::core::Error{
+        static_cast<void>(close());
+        return std::unexpected(ev::core::Error::from(
             ev::core::ErrorCode::TransportError,
-            std::string("Receive failed: ") + e.what(),
-            std::nullopt
-        });
+            std::string("TCP receive failed: ") + e.what()));
     }
 }
 

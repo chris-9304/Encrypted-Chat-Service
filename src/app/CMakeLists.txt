@@ -1,10 +1,8 @@
 ev_add_library(
     NAME app_lib
-    HEADERS 
-        chat_application.h
-    SOURCES 
+    SOURCES
         chat_application.cpp
-    DEPS 
+    DEPS
         core
         crypto
         identity
@@ -13,7 +11,7 @@ ev_add_library(
         transport
         session
         discovery
-        ui
+        transfer
 )
 
 add_executable(ev-chat main.cpp)

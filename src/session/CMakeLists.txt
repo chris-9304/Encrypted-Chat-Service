@@ -1,15 +1,14 @@
 ev_add_library(
     NAME session
-    HEADERS 
-        session.h
-        session_manager.h
-    SOURCES 
+    SOURCES
         session.cpp
         session_manager.cpp
-    DEPS 
+    DEPS
         core
         crypto
         identity
         wire
         transport
+        sodium
+        ws2_32
 )

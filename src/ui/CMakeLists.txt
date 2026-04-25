@@ -1,10 +1,8 @@
 ev_add_library(
     NAME ui
-    HEADERS 
-        chat_ui.h
-    SOURCES 
+    SOURCES
         chat_ui.cpp
-    DEPS 
+    DEPS
         core
         identity
         session

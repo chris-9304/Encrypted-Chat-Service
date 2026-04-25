@@ -1,12 +1,10 @@
 ev_add_library(
     NAME identity
-    HEADERS 
-        identity.h
-        peer_directory.h
-    SOURCES 
+    SOURCES
         identity.cpp
         peer_directory.cpp
-    DEPS 
+    DEPS
         core
         crypto
+        sodium
 )

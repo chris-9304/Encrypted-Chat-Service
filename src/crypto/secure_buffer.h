@@ -1,60 +1,62 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
+#include <cstring>
 #include <vector>
-#include <stdexcept>
-#include <utility>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-#include <memoryapi.h>
 
 namespace ev::crypto {
 
+// Owning, fixed-size buffer for secret key material.
+// - VirtualLock on construction (best-effort, requires PROCESS_VM_OPERATION).
+// - SecureZeroMemory on destruction.
+// - Move-only: never copied, never logged, never serialized unencrypted.
 template <size_t N>
 class SecureBuffer {
 public:
     SecureBuffer() {
-        if (!VirtualLock(data_, N)) {
-            // Memory locking failure is exceptional
-            throw std::runtime_error("VirtualLock failed");
-        }
+        VirtualLock(buf_.data(), N);
     }
 
     ~SecureBuffer() {
-        SecureZeroMemory(data_, N);
-        VirtualUnlock(data_, N);
+        SecureZeroMemory(buf_.data(), N);
+        VirtualUnlock(buf_.data(), N);
     }
 
-    // Move-only, non-copyable requirements
-    SecureBuffer(const SecureBuffer&) = delete;
-    SecureBuffer& operator=(const SecureBuffer&) = delete;
-
-    SecureBuffer(SecureBuffer&& other) noexcept {
-        // Move construction safely swaps data implicitly or copies and zero-clears the old buffer
-        // In a true RAII locked buffer array, we copy the bytes and zero the old one.
-        if (this != &other) {
-            VirtualLock(data_, N);
-            std::copy(std::begin(other.data_), std::end(other.data_), std::begin(data_));
-            SecureZeroMemory(other.data_, N);
-        }
+    // Move-only.
+    SecureBuffer(SecureBuffer&& o) noexcept : buf_(o.buf_) {
+        SecureZeroMemory(o.buf_.data(), N);
     }
-
-    SecureBuffer& operator=(SecureBuffer&& other) noexcept {
-        if (this != &other) {
-            std::copy(std::begin(other.data_), std::end(other.data_), std::begin(data_));
-            SecureZeroMemory(other.data_, N);
+    SecureBuffer& operator=(SecureBuffer&& o) noexcept {
+        if (this != &o) {
+            SecureZeroMemory(buf_.data(), N);
+            buf_ = o.buf_;
+            SecureZeroMemory(o.buf_.data(), N);
         }
         return *this;
     }
+    SecureBuffer(const SecureBuffer&)            = delete;
+    SecureBuffer& operator=(const SecureBuffer&) = delete;
 
-    uint8_t* data() { return data_; }
-    const uint8_t* data() const { return data_; }
-    constexpr size_t size() const { return N; }
+    uint8_t*       data() noexcept       { return buf_.data(); }
+    const uint8_t* data() const noexcept { return buf_.data(); }
+    static constexpr size_t size() noexcept { return N; }
+
+    uint8_t&       operator[](size_t i)       { return buf_[i]; }
+    const uint8_t& operator[](size_t i) const { return buf_[i]; }
+
+    auto begin()       { return buf_.begin(); }
+    auto end()         { return buf_.end(); }
+    auto begin() const { return buf_.begin(); }
+    auto end()   const { return buf_.end(); }
 
 private:
-    uint8_t data_[N];
+    std::array<uint8_t, N> buf_{};
 };
 
 } // namespace ev::crypto

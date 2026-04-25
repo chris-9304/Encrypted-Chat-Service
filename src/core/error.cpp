@@ -1,5 +1,5 @@
-#include "error.h"
+#include <ev/core/error.h>
 
-namespace ev::core {
-// TODO(M1.1 skeleton)
-}
+// Error is a header-only value type; nothing to implement here.
+// The translation unit exists to ensure the module links.
+namespace ev::core {}
