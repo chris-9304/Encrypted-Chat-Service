@@ -59,6 +59,7 @@ add_subdirectory(src/session)
 add_subdirectory(src/discovery)
 add_subdirectory(src/transfer)
 add_subdirectory(src/group)
+add_subdirectory(src/relay)
 add_subdirectory(src/ui)
 add_subdirectory(src/app)
 

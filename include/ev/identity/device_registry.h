@@ -46,8 +46,8 @@ public:
     // Returns true if this instance is a secondary device.
     bool is_secondary() const;
 
-    // Returns this device's cert (only valid for secondary devices).
-    const std::optional<DeviceCert>& own_cert() const;
+    // Returns a copy of this device's cert (only valid for secondary devices).
+    std::optional<DeviceCert> own_cert() const;
 
     // Returns the primary signing key this device is linked to (secondary only).
     std::optional<ev::core::PublicKey> primary_signing_key() const;

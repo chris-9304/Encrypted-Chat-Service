@@ -7,5 +7,6 @@ ev_add_library(
         crypto
         wire
         identity
+        group
         unofficial::sqlite3::sqlite3
 )

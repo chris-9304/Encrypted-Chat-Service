@@ -3,10 +3,12 @@
 #include <ev/core/error.h>
 #include <ev/core/types.h>
 #include <ev/group/group_session.h>
+#include <ev/group/group_types.h>
 #include <ev/identity/identity.h>
 
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -49,6 +51,14 @@ public:
     ev::core::Result<ev::wire::GroupOpPayload> invite(
         const ev::core::GroupId&       gid,
         const ev::core::PublicKey&     invitee_signing_pub);
+
+    // Restore a GroupSession loaded from persistent storage.
+    ev::core::Result<void> restore(GroupSession&& gs);
+
+    // Return a snapshot of a group's state for persistence.
+    // Returns nullopt if the group is not found.
+    std::optional<ev::store::GroupSessionRecord> snapshot(   // NOLINT: ev::store defined in group_types.h
+        const ev::core::GroupId& gid) const;
 
 private:
     mutable std::mutex                                         mu_;

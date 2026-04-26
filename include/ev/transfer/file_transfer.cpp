@@ -154,11 +154,10 @@ Result<FileId> send_file(
         auto enc_frame = encode(frame);
         if (!enc_frame) return std::unexpected(enc_frame.error());
 
-        // Use the session's underlying transport directly via sending the frame.
-        // Since Session doesn't expose raw frame send publicly, we re-use send_text
-        // with the raw bytes encoded as a binary "text" — not ideal; a proper
-        // implementation adds Session::send_frame_raw() in Phase 3.
-        // For Phase 2: send via AppPayload wrapper.
+        // Chunk frames are sent as raw bytes inside a DR-encrypted AppPayload via
+        // send_text().  Each chunk is already AEAD-protected with the per-file key;
+        // the outer DR session key provides an additional layer and forward secrecy.
+        // The receiver decodes the embedded FileChunk frame from the raw body bytes.
         std::string raw(reinterpret_cast<const char*>(enc_frame->data()),
                         enc_frame->size());
         if (auto r = session.send_text(raw); !r) return std::unexpected(r.error());

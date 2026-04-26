@@ -2,6 +2,8 @@
 #include <ev/identity/identity.h>
 #include <ev/crypto/crypto.h>
 #include <cstring>
+#include <filesystem>
+#include <string>
 
 using namespace ev::identity;
 
@@ -58,4 +60,73 @@ TEST_CASE("Identity safety number symmetry", "[identity]") {
 
     REQUIRE(sn_ab.digits == sn_ba.digits);
     REQUIRE(!sn_ab.digits.empty());
+}
+
+TEST_CASE("Identity safety number format: exactly 60 digits + 5 spaces", "[identity]") {
+    REQUIRE(ev::crypto::Crypto::initialize().has_value());
+
+    auto a = Identity::generate().value();
+    auto b = Identity::generate().value();
+
+    auto sn = Identity::safety_number(a.signing_public(), b.signing_public());
+
+    // Total length: 60 digit chars + 5 space separators = 65.
+    REQUIRE(sn.digits.size() == 65u);
+
+    // Every char must be a decimal digit or a space.
+    size_t spaces = 0;
+    size_t digits = 0;
+    for (char c : sn.digits) {
+        if (c == ' ') { ++spaces; continue; }
+        REQUIRE(c >= '0');
+        REQUIRE(c <= '9');
+        ++digits;
+    }
+    CHECK(digits == 60u);
+    CHECK(spaces == 5u);
+
+    // Each two-digit group must be 00-99 (not 100+ which would indicate the bug).
+    // Remove spaces and walk in pairs.
+    std::string only_digits;
+    for (char c : sn.digits) if (c != ' ') only_digits += c;
+    REQUIRE(only_digits.size() == 60u);
+    for (size_t i = 0; i < 60; i += 2) {
+        int val = (only_digits[i] - '0') * 10 + (only_digits[i+1] - '0');
+        REQUIRE(val >= 0);
+        REQUIRE(val <= 99);
+    }
+}
+
+TEST_CASE("Identity save and load round-trip", "[identity]") {
+    REQUIRE(ev::crypto::Crypto::initialize().has_value());
+
+    const auto tmp = std::filesystem::temp_directory_path() / "ev_test_identity.bin";
+    std::filesystem::remove(tmp);
+
+    auto id = Identity::generate().value();
+    const auto orig_fp = id.fingerprint();
+
+    const std::string passphrase = "test-pass-phrase";
+    REQUIRE(id.save(tmp,
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(passphrase.data()),
+            passphrase.size())).has_value());
+
+    REQUIRE(Identity::exists(tmp));
+
+    auto loaded = Identity::load(tmp,
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(passphrase.data()),
+            passphrase.size()));
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->fingerprint() == orig_fp);
+
+    // Wrong passphrase must fail.
+    const std::string bad = "wrong-passphrase";
+    auto bad_load = Identity::load(tmp,
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(bad.data()), bad.size()));
+    REQUIRE_FALSE(bad_load.has_value());
+
+    std::filesystem::remove(tmp);
 }

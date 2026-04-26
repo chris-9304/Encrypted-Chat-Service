@@ -73,11 +73,21 @@ public:
 
     // ── Messaging ─────────────────────────────────────────────────────────────
 
-    // Encrypt and send a UTF-8 text message.
+    // Encrypt and send a UTF-8 text message (InnerType::Text).
     ev::core::Result<void> send_text(const std::string& body);
 
-    // Receive and decrypt one message (blocks until data or error).
-    // Returns TransportError on disconnect.
+    // Encrypt and send a typed inner payload.  Use this for non-text inner
+    // types (GroupOp, GroupMessage, DeviceLink, Receipt, etc.).
+    ev::core::Result<void> send_inner(ev::wire::InnerType type,
+                                      std::span<const std::byte> payload);
+
+    // Receive and decrypt one DR message.
+    // Returns (InnerType, payload_bytes) — the type byte is NOT included in the payload.
+    // Blocks until data arrives or an error occurs.
+    ev::core::Result<std::pair<ev::wire::InnerType, std::vector<std::byte>>>
+        recv_message();
+
+    // Convenience wrapper: calls recv_message(), asserts InnerType::Text.
     ev::core::Result<std::string> recv_text();
 
     // ── Phase 2 ───────────────────────────────────────────────────────────────

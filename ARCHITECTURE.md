@@ -1,6 +1,6 @@
 # Architecture
 
-EncryptiV is a Windows-native, terminal-based, end-to-end encrypted peer-to-peer messenger. Phase 1 delivers working LAN text chat between two installed instances. The architecture is deliberately more ambitious than Phase 1's feature set requires — it is the foundation for files, groups, multi-device, and cross-network transport in later phases. Overkill in Phase 1 is the point.
+EncryptiV is a Windows-native, terminal-based, end-to-end encrypted peer-to-peer messenger. v0.4.0 completes Phase 4 (Internet relay + invite-code discovery). The architecture was deliberately more ambitious than Phase 1's feature set required — each phase added a new concrete implementation behind an existing abstraction without touching upstream code.
 
 ## System shape
 
@@ -27,8 +27,9 @@ EncryptiV is a Windows-native, terminal-based, end-to-end encrypted peer-to-peer
 │                                    │                     │
 │                          ┌─────────┼─────────┐           │
 │                          │         │         │           │
-│                   TcpTransport  (future) (future)        │
-│                                LanMailbox  InternetRelay │
+│                   TcpTransport  LanMailbox  RelayTransport │
+│                                                          │
+│   RelayServer (ev-relay.exe) ← standalone relay binary   │
 │                                                          │
 │   Crypto (static class)  ← libsodium facade              │
 │                                                          │

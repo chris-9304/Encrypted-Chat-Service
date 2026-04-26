@@ -245,14 +245,16 @@ ev::core::SafetyNumber Identity::safety_number(const PublicKey& a,
 
     if (!hash_res) return SafetyNumber{"(error)"};
 
-    // Build 60-digit string from 30 bytes (2 decimal digits per byte).
+    // Build 60-digit string: 2 decimal digits per byte, 30 bytes = 60 digits.
+    // Each byte is reduced mod 100 so the output is always exactly 2 digits.
+    // Grouped in blocks of 10 digits (5 bytes) separated by spaces.
     SafetyNumber sn;
-    sn.digits.reserve(65);
+    sn.digits.reserve(66); // 60 digits + 5 spaces
     for (size_t i = 0; i < 30; ++i) {
         if (i > 0 && i % 5 == 0) sn.digits += ' ';
-        char buf[4];
+        char buf[3];
         snprintf(buf, sizeof(buf), "%02u",
-                 static_cast<unsigned>((*hash_res)[i]));
+                 static_cast<unsigned>((*hash_res)[i]) % 100u);
         sn.digits += buf;
     }
     return sn;

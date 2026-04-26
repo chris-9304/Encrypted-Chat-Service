@@ -20,7 +20,7 @@ struct PeerRecord {
 };
 
 // In-memory peer directory with TOFU trust tracking.
-// Phase 2: persistence backed by MessageStore SQLite tables.
+// Persisted to/from MessageStore SQLite tables via save_peers() / load_peers().
 class PeerDirectory {
 public:
     PeerDirectory() = default;
