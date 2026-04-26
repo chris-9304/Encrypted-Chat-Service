@@ -1,14 +1,14 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ev/identity/identity.h>
-#include <ev/crypto/crypto.h>
+#include <cloak/identity/identity.h>
+#include <cloak/crypto/crypto.h>
 #include <cstring>
 #include <filesystem>
 #include <string>
 
-using namespace ev::identity;
+using namespace cloak::identity;
 
 TEST_CASE("Identity fingerprint and key agreement", "[identity]") {
-    REQUIRE(ev::crypto::Crypto::initialize().has_value());
+    REQUIRE(cloak::crypto::Crypto::initialize().has_value());
 
     auto id1_res = Identity::generate();
     REQUIRE(id1_res.has_value());
@@ -31,7 +31,7 @@ TEST_CASE("Identity fingerprint and key agreement", "[identity]") {
 }
 
 TEST_CASE("Identity signing verification", "[identity]") {
-    REQUIRE(ev::crypto::Crypto::initialize().has_value());
+    REQUIRE(cloak::crypto::Crypto::initialize().has_value());
 
     auto id_res = Identity::generate();
     REQUIRE(id_res.has_value());
@@ -41,7 +41,7 @@ TEST_CASE("Identity signing verification", "[identity]") {
     auto sig = id.sign(std::span<const std::byte>(msg));
     REQUIRE(sig.has_value());
 
-    auto ok = ev::crypto::Crypto::verify_detached(
+    auto ok = cloak::crypto::Crypto::verify_detached(
         id.signing_public(),
         std::span<const std::byte>(msg),
         *sig);
@@ -50,7 +50,7 @@ TEST_CASE("Identity signing verification", "[identity]") {
 }
 
 TEST_CASE("Identity safety number symmetry", "[identity]") {
-    REQUIRE(ev::crypto::Crypto::initialize().has_value());
+    REQUIRE(cloak::crypto::Crypto::initialize().has_value());
 
     auto a = Identity::generate().value();
     auto b = Identity::generate().value();
@@ -63,7 +63,7 @@ TEST_CASE("Identity safety number symmetry", "[identity]") {
 }
 
 TEST_CASE("Identity safety number format: exactly 60 digits + 5 spaces", "[identity]") {
-    REQUIRE(ev::crypto::Crypto::initialize().has_value());
+    REQUIRE(cloak::crypto::Crypto::initialize().has_value());
 
     auto a = Identity::generate().value();
     auto b = Identity::generate().value();
@@ -98,7 +98,7 @@ TEST_CASE("Identity safety number format: exactly 60 digits + 5 spaces", "[ident
 }
 
 TEST_CASE("Identity save and load round-trip", "[identity]") {
-    REQUIRE(ev::crypto::Crypto::initialize().has_value());
+    REQUIRE(cloak::crypto::Crypto::initialize().has_value());
 
     const auto tmp = std::filesystem::temp_directory_path() / "ev_test_identity.bin";
     std::filesystem::remove(tmp);

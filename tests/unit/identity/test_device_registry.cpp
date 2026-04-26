@@ -1,11 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ev/identity/device_registry.h>
-#include <ev/identity/identity.h>
-#include <ev/crypto/crypto.h>
+#include <cloak/identity/device_registry.h>
+#include <cloak/identity/identity.h>
+#include <cloak/crypto/crypto.h>
 
-using namespace ev::identity;
-using namespace ev::crypto;
-using namespace ev::core;
+using namespace cloak::identity;
+using namespace cloak::crypto;
+using namespace cloak::core;
 
 TEST_CASE("DeviceRegistry: primary issues and secondary installs cert", "[identity][device]") {
     REQUIRE(Crypto::initialize().has_value());

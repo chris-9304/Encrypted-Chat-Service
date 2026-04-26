@@ -1,10 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ev/crypto/crypto.h>
+#include <cloak/crypto/crypto.h>
 #include <cstring>
 #include <span>
 
-using namespace ev::crypto;
-using namespace ev::core;
+using namespace cloak::crypto;
+using namespace cloak::core;
 
 TEST_CASE("Crypto AEAD round-trip", "[crypto]") {
     REQUIRE(Crypto::initialize().has_value());
@@ -94,7 +94,7 @@ TEST_CASE("Crypto DR KDF_RK symmetry: Alice CKs == Bob CKr", "[crypto]") {
 
     // KDF_RK(SK, DH_output) -> (new_RK, CK)
     // Alice computes CKs, Bob computes CKr — must match.
-    constexpr std::string_view kInfo = "EncryptiV_DR_RK_CK_v2";
+    constexpr std::string_view kInfo = "Cloak_DR_RK_CK_v2";
     auto span_info = std::span<const std::byte>(
         reinterpret_cast<const std::byte*>(kInfo.data()), kInfo.size());
     auto span_dh = std::span<const std::byte>(

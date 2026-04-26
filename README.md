@@ -1,4 +1,4 @@
-# EncryptiV
+# Cloak
 
 > **👉 STOP HERE: Check out [docs/DEMO.md](docs/DEMO.md) for the fast-track CLI guide mapping out the precise architecture demo!**
 
@@ -13,4 +13,4 @@ A Windows-native, terminal-based, end-to-end encrypted peer-to-peer LAN messenge
 - [Security Policy](SECURITY.md)
 
 ## Current Status
-Phase 1 (LAN Text Chat) is actively in development. EncryptiV is designed with strong OOP principles and extension seams for later features like offline transfer and cross-network relays.
+Phase 1 (LAN Text Chat) is actively in development. Cloak is designed with strong OOP principles and extension seams for later features like offline transfer and cross-network relays.

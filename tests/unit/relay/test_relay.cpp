@@ -1,20 +1,20 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ev/relay/relay_server.h>
-#include <ev/transport/relay_transport.h>
-#include <ev/session/session.h>
-#include <ev/identity/identity.h>
-#include <ev/crypto/crypto.h>
+#include <cloak/relay/relay_server.h>
+#include <cloak/transport/relay_transport.h>
+#include <cloak/session/session.h>
+#include <cloak/identity/identity.h>
+#include <cloak/crypto/crypto.h>
 
 #include <atomic>
 #include <chrono>
 #include <string>
 #include <thread>
 
-using namespace ev::relay;
-using namespace ev::transport;
-using namespace ev::session;
-using namespace ev::identity;
-using namespace ev::crypto;
+using namespace cloak::relay;
+using namespace cloak::transport;
+using namespace cloak::session;
+using namespace cloak::identity;
+using namespace cloak::crypto;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -52,14 +52,14 @@ struct ServerGuard {
 // ── Invite code tests ─────────────────────────────────────────────────────────
 
 TEST_CASE("Invite code round-trip", "[relay][invite]") {
-    ev::core::Endpoint relay_in{"192.168.1.10", 8765};
+    cloak::core::Endpoint relay_in{"192.168.1.10", 8765};
     RelayRoomId room{};
     for (size_t i = 0; i < 32; ++i) room[i] = static_cast<uint8_t>(i);
 
     const auto code = make_invite_code(relay_in, room);
     REQUIRE(!code.empty());
 
-    ev::core::Endpoint relay_out{};
+    cloak::core::Endpoint relay_out{};
     RelayRoomId room_out{};
     REQUIRE(parse_invite_code(code, relay_out, room_out));
     CHECK(relay_out.address == relay_in.address);
@@ -68,7 +68,7 @@ TEST_CASE("Invite code round-trip", "[relay][invite]") {
 }
 
 TEST_CASE("Invite code rejects malformed inputs", "[relay][invite]") {
-    ev::core::Endpoint ep{};
+    cloak::core::Endpoint ep{};
     RelayRoomId room{};
 
     CHECK_FALSE(parse_invite_code("", ep, room));
@@ -87,7 +87,7 @@ TEST_CASE("Relay server: host + guest pair and exchange bytes", "[relay]") {
     if (!guard.ok()) SKIP("Relay server failed to bind");
     const uint16_t srv_port = guard.port();
 
-    ev::core::Endpoint relay{"127.0.0.1", srv_port};
+    cloak::core::Endpoint relay{"127.0.0.1", srv_port};
     RelayRoomId room{};
     room.fill(0x42);
 
@@ -143,7 +143,7 @@ TEST_CASE("Relay: guest gets error for unknown room", "[relay]") {
 
     ServerGuard guard;
     if (!guard.ok()) SKIP("Relay server failed to bind");
-    ev::core::Endpoint relay{"127.0.0.1", guard.port()};
+    cloak::core::Endpoint relay{"127.0.0.1", guard.port()};
 
     RelayRoomId room{};
     room.fill(0xDE); // no host registered this room
@@ -152,7 +152,7 @@ TEST_CASE("Relay: guest gets error for unknown room", "[relay]") {
     CHECK_FALSE(t.has_value()); // relay should return an error
 }
 
-TEST_CASE("Relay: full EncryptiV session over relay transport", "[relay][session]") {
+TEST_CASE("Relay: full Cloak session over relay transport", "[relay][session]") {
     REQUIRE(Crypto::initialize().has_value());
 
     ServerGuard guard;
@@ -164,7 +164,7 @@ TEST_CASE("Relay: full EncryptiV session over relay transport", "[relay][session
     auto bob_id = Identity::generate();
     REQUIRE(bob_id.has_value());
 
-    ev::core::Endpoint relay{"127.0.0.1", srv_port};
+    cloak::core::Endpoint relay{"127.0.0.1", srv_port};
     RelayRoomId room{};
     room.fill(0xAB);
 
@@ -214,5 +214,5 @@ TEST_CASE("Relay: full EncryptiV session over relay transport", "[relay][session
     if (bob_thread.joinable()) bob_thread.join();
 
     if (!bob_error.empty()) FAIL("Bob: " + bob_error);
-    SUCCEED("Full EncryptiV session over relay transport passed");
+    SUCCEED("Full Cloak session over relay transport passed");
 }

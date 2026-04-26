@@ -34,33 +34,33 @@ Crypto facade, SecureBuffer, Wire framing v2, TCP transport, Loopback discovery,
 ### What was built
 
 **Relay transport (`src/transport/relay_transport.h/.cpp`):**
-- `RelayTransport::host(relay, room_id)` — connects as EncryptiV responder, blocks until a guest arrives.
-- `RelayTransport::join(relay, room_id)` — connects as EncryptiV initiator, returns when pairing is confirmed.
+- `RelayTransport::host(relay, room_id)` — connects as Cloak responder, blocks until a guest arrives.
+- `RelayTransport::join(relay, room_id)` — connects as Cloak initiator, returns when pairing is confirmed.
 - `make_invite_code()` / `parse_invite_code()` — encode/decode `host:port/room_hex64` invite strings.
-- After pairing the relay is a transparent byte pipe; all EncryptiV crypto runs on top unmodified.
+- After pairing the relay is a transparent byte pipe; all Cloak crypto runs on top unmodified.
 
-**Relay server (`src/relay/relay_server.h/.cpp`, `ev-relay.exe`):**
+**Relay server (`src/relay/relay_server.h/.cpp`, `cloak-relay.exe`):**
 - Thread-per-connection TCP server.
-- Wire protocol: 37-byte client handshake (magic `EVR1` + role byte + 32-byte room ID), 1-byte server response.
-- Roles: `0x01` = host (becomes EncryptiV responder), `0x02` = join (becomes EncryptiV initiator).
+- Wire protocol: 37-byte client handshake (magic `CLK1` + role byte + 32-byte room ID), 1-byte server response.
+- Roles: `0x01` = host (becomes Cloak responder), `0x02` = join (becomes Cloak initiator).
 - Status codes: `0x00` = waiting, `0x01` = initiator paired, `0x02` = responder paired, `0xFF` = error.
 - Host blocks waiting; guest hand-off via `shared_ptr<socket>`, no data races.
 
 **Invite-code discovery:**
-- Inviter: `ev-chat --relay <host:port>`, then `/make-invite` → prints a self-contained invite code.
+- Inviter: `cloak --relay <host:port>`, then `/make-invite` → prints a self-contained invite code.
 - Room ID = BLAKE2b-256(sign_pub ‖ random_16), uniquely bound to the inviter's identity.
-- Invitee: `/connect-invite <code>` → connects through relay → full EncryptiV session.
+- Invitee: `/connect-invite <code>` → connects through relay → full Cloak session.
 
 **App integration:**
-- New `--relay <host:port>` flag for `ev-chat`.
+- New `--relay <host:port>` flag for `cloak`.
 - Two new commands: `/make-invite`, `/connect-invite <code>`.
 - TOFU / peer directory / session machinery unchanged — relay is transport-transparent.
 
 ### Phase 4 success criteria
 
-- `ev-relay.exe` starts, binds port, prints confirmation. Ctrl+C shuts down cleanly.
-- Alice runs `ev-chat --relay relay:8765`, types `/make-invite`, copies the invite code.
-- Bob runs `ev-chat`, types `/connect-invite <code>`. Session established.
+- `cloak-relay.exe` starts, binds port, prints confirmation. Ctrl+C shuts down cleanly.
+- Alice runs `cloak --relay relay:8765`, types `/make-invite`, copies the invite code.
+- Bob runs `cloak`, types `/connect-invite <code>`. Session established.
 - All existing Phase 1–3 tests remain green.
 - Relay is a transparent pipe: no plaintext visible in relay process memory.
 

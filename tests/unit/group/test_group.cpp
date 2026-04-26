@@ -1,14 +1,14 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ev/group/group_manager.h>
-#include <ev/group/group_session.h>
-#include <ev/identity/identity.h>
-#include <ev/crypto/crypto.h>
+#include <cloak/group/group_manager.h>
+#include <cloak/group/group_session.h>
+#include <cloak/identity/identity.h>
+#include <cloak/crypto/crypto.h>
 
-using namespace ev::group;
-using namespace ev::identity;
-using namespace ev::crypto;
-using namespace ev::core;
-using namespace ev::wire;
+using namespace cloak::group;
+using namespace cloak::identity;
+using namespace cloak::crypto;
+using namespace cloak::core;
+using namespace cloak::wire;
 
 // ── GroupSession unit tests ───────────────────────────────────────────────────
 
@@ -149,10 +149,10 @@ TEST_CASE("GroupSession wire encode/decode round-trip", "[group][wire]") {
     REQUIRE(payload.has_value());
 
     // Encode then decode.
-    auto encoded = ev::wire::encode_group_message(*payload);
+    auto encoded = cloak::wire::encode_group_message(*payload);
     REQUIRE(encoded.has_value());
 
-    auto decoded = ev::wire::decode_group_message(
+    auto decoded = cloak::wire::decode_group_message(
         std::span<const std::byte>(*encoded));
     REQUIRE(decoded.has_value());
 
@@ -177,10 +177,10 @@ TEST_CASE("GroupOp wire encode/decode round-trip", "[group][wire]") {
     op.chain_counter = 42;
     op.group_id.bytes.fill(0x11);
 
-    auto encoded = ev::wire::encode_group_op(op);
+    auto encoded = cloak::wire::encode_group_op(op);
     REQUIRE(encoded.has_value());
 
-    auto decoded = ev::wire::decode_group_op(
+    auto decoded = cloak::wire::decode_group_op(
         std::span<const std::byte>(*encoded));
     REQUIRE(decoded.has_value());
 

@@ -19,7 +19,7 @@ This project has been explicitly engineered around robust OOP parameters, valida
 
 ### 5. Polymorphism
 - Core messaging hooks rely directly on Base-Type dispatch. 
-- In `src/session/session.h:20`, we instantiate endpoints passing strictly `std::unique_ptr<ev::transport::Transport>`. At runtime, these uniquely hold the blocking `TcpTransport` concrete class (`src/transport/tcp_transport.h:10`), yet `Session` inherently remains blind to WinSock implementations or networking parameters, satisfying the requirement natively.
+- In `src/session/session.h:20`, we instantiate endpoints passing strictly `std::unique_ptr<cloak::transport::Transport>`. At runtime, these uniquely hold the blocking `TcpTransport` concrete class (`src/transport/tcp_transport.h:10`), yet `Session` inherently remains blind to WinSock implementations or networking parameters, satisfying the requirement natively.
 
 ---
 **Note on Cryptography:**

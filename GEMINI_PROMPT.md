@@ -6,7 +6,7 @@ Copy the block below into a fresh Gemini Antigravity session. Make sure the four
 
 ## Prompt to paste into Gemini Antigravity
 
-> You are operating in **EncryptiV**, a Windows-native C++ encrypted-messenger project. Read these files in full before writing anything. They are the source of truth:
+> You are operating in **Cloak**, a Windows-native C++ encrypted-messenger project. Read these files in full before writing anything. They are the source of truth:
 >
 > 1. `GEMINI.md`
 > 2. `ARCHITECTURE.md`
@@ -30,9 +30,9 @@ Copy the block below into a fresh Gemini Antigravity session. Make sure the four
 >    - C++ standard: `/std:c++latest`.
 >
 > 2. **Shared CMake modules under `cmake/`:**
->    - `warnings.cmake` — function `ev_target_warnings(tgt)` applying `/W4 /WX /permissive- /Zc:__cplusplus /Zc:preprocessor`. Apply to every `ev_*` library.
+>    - `warnings.cmake` — function `cloak_target_warnings(tgt)` applying `/W4 /WX /permissive- /Zc:__cplusplus /Zc:preprocessor`. Apply to every `ev_*` library.
 >    - `msvc_options.cmake` — shared MSVC options (UTF-8 source `/utf-8`, conformance mode, etc.).
->    - `ev_add_library.cmake` — function `ev_add_library(NAME ... SOURCES ... HEADERS ... DEPS ...)` that creates a static lib target `ev_<name>` aliased as `ev::<name>`, applies warnings, applies msvc_options, sets include dirs, links deps, and optionally wires a `tests/` subdirectory.
+>    - `cloak_add_library.cmake` — function `cloak_add_library(NAME ... SOURCES ... HEADERS ... DEPS ...)` that creates a static lib target `ev_<name>` aliased as `cloak::<name>`, applies warnings, applies msvc_options, sets include dirs, links deps, and optionally wires a `tests/` subdirectory.
 >
 > 3. **vcpkg manifest.**
 >    - `vcpkg.json` with Phase 1 dependencies: `libsodium`, `boost-asio`, `boost-program-options`, `protobuf`, `sqlite3`, `spdlog`, `fmt`, `catch2`, `ftxui`, `wil`.
@@ -42,9 +42,9 @@ Copy the block below into a fresh Gemini Antigravity session. Make sure the four
 >
 >    For each subsystem in `src/` (`core`, `crypto`, `identity`, `wire`, `discovery`, `transport`, `session`, `store`, `ui`, `app`):
 >
->    - Header in `src/<sub>/<classname>.h` with `#pragma once`, namespace `ev::<sub>`, full class declaration including all public methods from ARCHITECTURE.md, private members as `TODO` comments, move-only or copyable discipline correct, virtual methods where applicable.
+>    - Header in `src/<sub>/<classname>.h` with `#pragma once`, namespace `cloak::<sub>`, full class declaration including all public methods from ARCHITECTURE.md, private members as `TODO` comments, move-only or copyable discipline correct, virtual methods where applicable.
 >    - Source in `src/<sub>/<classname>.cpp` with method bodies that return `Error{ErrorCode::NotImplemented, "M1.1 skeleton"}` or equivalent. No real logic.
->    - `src/<sub>/CMakeLists.txt` using `ev_add_library`.
+>    - `src/<sub>/CMakeLists.txt` using `cloak_add_library`.
 >    - `tests/unit/<sub>/test_<classname>.cpp` with a Catch2 `TEST_CASE` that only verifies linkage (`SUCCEED("M1.1 skeleton")`). Real tests arrive with the implementing milestone.
 >
 >    The `core` subsystem includes: `Error`, `ErrorCode` enum, `Result<T>` alias for `std::expected<T, Error>`, `PeerId`, `SessionId`, `MessageId`, `PublicKey`, `Nonce`, `Signature`, `SafetyNumber`, `Timestamp`, `Endpoint`, `Path`.
@@ -54,7 +54,7 @@ Copy the block below into a fresh Gemini Antigravity session. Make sure the four
 >    Abstract base classes (`Transport`, `DiscoveryService`) have all virtual methods declared with `= 0` and a virtual destructor.
 >
 > 5. **Application skeletons.**
->    - `src/app/main.cpp` with a `main()` that prints the version `ev-chat 0.1.0 (M1.1 skeleton)` and exits.
+>    - `src/app/main.cpp` with a `main()` that prints the version `cloak 0.1.0 (M1.1 skeleton)` and exits.
 >    - `src/app/ChatApplication.{h,cpp}` with constructor/destructor stubs.
 >
 > 6. **Protobuf placeholder.** `proto/.gitkeep`. Do NOT write schemas yet — that's M1.4.
@@ -132,7 +132,7 @@ Copy the block below into a fresh Gemini Antigravity session. Make sure the four
 
 Paste this into a fresh Claude session once your usage resets and Gemini has landed some work:
 
-> I've been running Gemini Antigravity on the EncryptiV C++ encrypted-messenger project while my Claude limit was exhausted. Gemini has executed milestone M1.1 (scaffold). I want you to do a thorough review before M1.2 begins.
+> I've been running Gemini Antigravity on the Cloak C++ encrypted-messenger project while my Claude limit was exhausted. Gemini has executed milestone M1.1 (scaffold). I want you to do a thorough review before M1.2 begins.
 >
 > Please read, in this order:
 >

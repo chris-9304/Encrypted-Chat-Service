@@ -1,7 +1,7 @@
 # Security Policy
 
 ## Supported Versions
-EncryptiV is in early preview (0.x). Security patches will be applied to the master branch. 
+Cloak is in early preview (0.x). Security patches will be applied to the master branch. 
 
 ## Reporting a Vulnerability
 Security contact: SECURITY-CONTACT-TBD (Update before v1.0).

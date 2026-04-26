@@ -1,10 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ev/wire/framing.h>
+#include <cloak/wire/framing.h>
 #include <algorithm>
 #include <random>
 
-using namespace ev::wire;
-using namespace ev::core;
+using namespace cloak::wire;
+using namespace cloak::core;
 
 TEST_CASE("Wire framing round-trip", "[wire]") {
     Frame f{MessageType::AppMessage, {std::byte{1}, std::byte{2}, std::byte{3}}};
@@ -62,17 +62,17 @@ TEST_CASE("Wire handshake version: older peer version is accepted", "[wire]") {
 }
 
 TEST_CASE("Wire GroupMessage round-trip", "[wire][group]") {
-    ev::wire::GroupMessagePayload g;
+    cloak::wire::GroupMessagePayload g;
     g.group_id.bytes.fill(0x01);
     g.sender_sign_pub.bytes.fill(0x02);
     g.message_number = 99;
     g.ciphertext     = {std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}};
     g.signature.bytes.fill(0x03);
 
-    auto enc = ev::wire::encode_group_message(g);
+    auto enc = cloak::wire::encode_group_message(g);
     REQUIRE(enc.has_value());
 
-    auto dec = ev::wire::decode_group_message(std::span<const std::byte>(*enc));
+    auto dec = cloak::wire::decode_group_message(std::span<const std::byte>(*enc));
     REQUIRE(dec.has_value());
     CHECK(dec->group_id.bytes    == g.group_id.bytes);
     CHECK(dec->message_number    == 99u);
@@ -81,20 +81,20 @@ TEST_CASE("Wire GroupMessage round-trip", "[wire][group]") {
 }
 
 TEST_CASE("Wire GroupOp round-trip", "[wire][group]") {
-    ev::wire::GroupOpPayload op;
-    op.op           = ev::wire::GroupOpType::Leave;
+    cloak::wire::GroupOpPayload op;
+    op.op           = cloak::wire::GroupOpType::Leave;
     op.group_id.bytes.fill(0x55);
     op.group_name   = "TestGroup";
     op.member_key.bytes.fill(0x66);
     op.chain_key.fill(0x77);
     op.chain_counter = 7;
 
-    auto enc = ev::wire::encode_group_op(op);
+    auto enc = cloak::wire::encode_group_op(op);
     REQUIRE(enc.has_value());
 
-    auto dec = ev::wire::decode_group_op(std::span<const std::byte>(*enc));
+    auto dec = cloak::wire::decode_group_op(std::span<const std::byte>(*enc));
     REQUIRE(dec.has_value());
-    CHECK(dec->op           == ev::wire::GroupOpType::Leave);
+    CHECK(dec->op           == cloak::wire::GroupOpType::Leave);
     CHECK(dec->group_name   == "TestGroup");
     CHECK(dec->chain_counter == 7u);
 }

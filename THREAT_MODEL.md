@@ -1,6 +1,6 @@
 # Threat Model
 
-Who EncryptiV protects, against whom, under what assumptions. Features not serving these goals are out of scope. User-facing claims must not exceed what this document asserts.
+Who Cloak protects, against whom, under what assumptions. Features not serving these goals are out of scope. User-facing claims must not exceed what this document asserts.
 
 ## Assets, in priority order
 
@@ -45,9 +45,9 @@ Who EncryptiV protects, against whom, under what assumptions. Features not servi
 *Someone connected to the same Wi-Fi or wired LAN.*
 
 - **Capabilities.** Captures packets with Wireshark, sees all traffic between peers, observes mDNS broadcasts.
-- **Goals.** Read message content. Identify who is using EncryptiV and who is talking to whom.
+- **Goals.** Read message content. Identify who is using Cloak and who is talking to whom.
 - **Mitigations.** Noise XX over TCP provides confidentiality, integrity, and mutual authentication. The handshake includes identity-pubkey authentication so the observer learns only identities that are broadcast by mDNS anyway.
-- **Residual risk.** Observer sees the mDNS service advertisements (by design — that's how discovery works). Observer knows someone is running EncryptiV and sees connection metadata. Plaintext is not accessible.
+- **Residual risk.** Observer sees the mDNS service advertisements (by design — that's how discovery works). Observer knows someone is running Cloak and sees connection metadata. Plaintext is not accessible.
 
 ### A2. Active LAN attacker (in scope)
 
@@ -60,9 +60,9 @@ Who EncryptiV protects, against whom, under what assumptions. Features not servi
 
 ### A3. Rogue peer on the LAN (in scope)
 
-*Someone runs EncryptiV on the LAN intending to trick others into chatting with them believing they are someone else.*
+*Someone runs Cloak on the LAN intending to trick others into chatting with them believing they are someone else.*
 
-- **Capabilities.** Runs EncryptiV legitimately, chooses any display name, advertises any mDNS record.
+- **Capabilities.** Runs Cloak legitimately, chooses any display name, advertises any mDNS record.
 - **Goals.** Be mistaken for another user.
 - **Mitigations.** Display names are not authenticated; **identity pubkeys are**. The UI shows the short safety number for every peer. Users compare safety numbers out of band for high-assurance conversations. Identity-change alerts trigger on pubkey mismatch with a previously-seen peer.
 - **Residual risk.** A user who never verifies safety numbers is vulnerable to social-engineering impersonation on first contact. This is disclosed plainly in the UI's first-run onboarding.
@@ -74,16 +74,16 @@ Who EncryptiV protects, against whom, under what assumptions. Features not servi
 - **Capabilities.** Read any state the user could read on that device.
 - **Goals.** Read past messages; impersonate the user going forward.
 - **Mitigations.** `identity.bin` and `store.db` are encrypted at rest with a key derived via Argon2id from the user's passphrase. If the attacker has the passphrase, the game is over; if not, the files are opaque. Forward secrecy protects past messages on the *peer's* device.
-- **Residual risk.** An unlocked, running EncryptiV process has the derived key in memory. A running-process compromise reveals message history on that device. Remote wipe is a Phase 3 feature.
+- **Residual risk.** An unlocked, running Cloak process has the derived key in memory. A running-process compromise reveals message history on that device. Remote wipe is a Phase 3 feature.
 
 ### A5. Curious or malicious network administrator (in scope)
 
 *Corporate, school, or home IT with LAN visibility and possibly DNS control.*
 
 - **Capabilities.** A1 + A2, plus may block mDNS traffic entirely or filter specific ports.
-- **Goals.** Prevent EncryptiV from working; identify users of it.
+- **Goals.** Prevent Cloak from working; identify users of it.
 - **Mitigations.** Cryptographic guarantees hold. Admin can block mDNS or the chosen TCP port — Phase 1 accepts this. A future phase may add manual peer entry as a fallback.
-- **Residual risk.** Admin can prevent EncryptiV from functioning. Admin cannot read messages that do get exchanged.
+- **Residual risk.** Admin can prevent Cloak from functioning. Admin cannot read messages that do get exchanged.
 
 ### A6. Supply-chain attacker (partially in scope)
 
@@ -122,7 +122,7 @@ We do NOT trust:
 
 ## Explicit non-claims
 
-EncryptiV does not claim to be "unbreakable." No system is. We do not claim:
+Cloak does not claim to be "unbreakable." No system is. We do not claim:
 
 - That it works off-LAN in Phase 1.
 - That display names are authenticated.

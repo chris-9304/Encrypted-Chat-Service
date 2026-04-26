@@ -1,6 +1,6 @@
 # Running the Demo
 
-The `ev-chat` architecture has been streamlined into a quick, localized REPL mimicking end-to-end authenticated encryption via simulated console loops.
+The `cloak` architecture has been streamlined into a quick, localized REPL mimicking end-to-end authenticated encryption via simulated console loops.
 
 ### Step 1: Environment Validations
 Ensure your Visual Studio 2022 / VCPKG configurations reside inside the project tree. 
@@ -15,7 +15,7 @@ cmake --build --preset debug
 Find a terminal (or split the screen natively in Windows Terminal) and spawn "Bob" acting as the passive listener on port `13370`:
 
 ```powershell
-./out/build/debug/src/app/ev-chat.exe --name Bob --port 13370
+./out/build/debug/src/app/cloak.exe --name Bob --port 13370
 ```
 *Bob generates ephemeral X25519 configurations safely into memory.*
 
@@ -23,7 +23,7 @@ Find a terminal (or split the screen natively in Windows Terminal) and spawn "Bo
 Open a secondary terminal targeting local host delivery.
 
 ```powershell
-./out/build/debug/src/app/ev-chat.exe --name Alice --connect 127.0.0.1:13370
+./out/build/debug/src/app/cloak.exe --name Alice --connect 127.0.0.1:13370
 ```
 *Alice instantly negotiates Identity fingerprints over TCP boundaries seamlessly tying HKDF keys logically over identical boundaries.*
 

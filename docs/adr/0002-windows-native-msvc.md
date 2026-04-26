@@ -3,7 +3,7 @@
 **Status:** Accepted
 
 ## Context
-EncryptiV needs a first-tier, low-friction integration with Windows platform specifics like Win32 mDNS (`DnsServiceRegister`) and high performance.
+Cloak needs a first-tier, low-friction integration with Windows platform specifics like Win32 mDNS (`DnsServiceRegister`) and high performance.
 
 ## Decision
 Development, build, and CI strictly target native MSVC on Windows 10/11. We will NOT support POSIX, WSL shims, or MinGW. Tools such as Windows Implementation Libraries (`wil`) will be used to correctly interface with OS primitives.

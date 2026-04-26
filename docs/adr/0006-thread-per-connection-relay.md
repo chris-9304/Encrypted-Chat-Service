@@ -6,7 +6,7 @@
 
 ## Context
 
-Phase 4 requires a relay server that pairs two peers and forwards their encrypted byte streams. The relay is transparent — it cannot decrypt EncryptiV traffic — and is intended for small deployments (development, self-hosted, friend-group scale).
+Phase 4 requires a relay server that pairs two peers and forwards their encrypted byte streams. The relay is transparent — it cannot decrypt Cloak traffic — and is intended for small deployments (development, self-hosted, friend-group scale).
 
 Two architectural options were considered:
 

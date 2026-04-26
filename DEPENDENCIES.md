@@ -1,6 +1,6 @@
 # Dependencies
 
-EncryptiV uses `vcpkg` for dependency management. No new dependency may be introduced without updating this list.
+Cloak uses `vcpkg` for dependency management. No new dependency may be introduced without updating this list.
 
 | Dependency              | Version   | Purpose                                        | Rationale |
 |-------------------------|-----------|------------------------------------------------|-----------|

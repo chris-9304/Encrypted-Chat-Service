@@ -1,18 +1,18 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ev/session/session.h>
-#include <ev/identity/identity.h>
-#include <ev/transport/tcp_transport.h>
-#include <ev/crypto/crypto.h>
+#include <cloak/session/session.h>
+#include <cloak/identity/identity.h>
+#include <cloak/transport/tcp_transport.h>
+#include <cloak/crypto/crypto.h>
 #include <atomic>
 #include <chrono>
 #include <string>
 #include <thread>
 
-using namespace ev::session;
-using namespace ev::identity;
-using namespace ev::transport;
-using namespace ev::crypto;
-using namespace ev::wire;
+using namespace cloak::session;
+using namespace cloak::identity;
+using namespace cloak::transport;
+using namespace cloak::crypto;
+using namespace cloak::wire;
 
 // RAII thread guard: joins or detaches on destruction.
 struct JoinGuard {
@@ -184,7 +184,7 @@ TEST_CASE("Session send_receipt round-trip via recv_message", "[session]") {
     std::atomic<bool>  server_done{false};
     std::string        server_error;
 
-    ev::core::MessageId mid;
+    cloak::core::MessageId mid;
     mid.bytes.fill(0x77);
 
     std::thread server_thread([&]() {

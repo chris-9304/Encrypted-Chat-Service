@@ -1,10 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ev/transport/tcp_transport.h>
+#include <cloak/transport/tcp_transport.h>
 #include <chrono>
 #include <thread>
 #include <vector>
 
-using namespace ev::transport;
+using namespace cloak::transport;
 
 TEST_CASE("Transport loopback byte-stream round-trip", "[transport]") {
     constexpr uint16_t kPort = 30155;

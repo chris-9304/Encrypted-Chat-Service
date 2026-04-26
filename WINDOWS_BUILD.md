@@ -1,6 +1,6 @@
 # Windows Build
 
-EncryptiV targets Windows 10 version 1903+ and builds natively with MSVC 2022. No WSL, no MinGW.
+Cloak targets Windows 10 version 1903+ and builds natively with MSVC 2022. No WSL, no MinGW.
 
 ## One-time setup
 
@@ -41,8 +41,8 @@ Git for Windows is fine. Windows Terminal + PowerShell 7 is recommended.
 ## Clone and build
 
 ```powershell
-git clone <repo-url> encryptiv-chat
-cd encryptiv-chat
+git clone <repo-url> cloak-chat
+cd cloak-chat
 
 cmake --preset debug
 cmake --build --preset debug

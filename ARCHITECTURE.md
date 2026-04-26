@@ -1,11 +1,11 @@
 # Architecture
 
-EncryptiV is a Windows-native, terminal-based, end-to-end encrypted peer-to-peer messenger. v0.4.0 completes Phase 4 (Internet relay + invite-code discovery). The architecture was deliberately more ambitious than Phase 1's feature set required — each phase added a new concrete implementation behind an existing abstraction without touching upstream code.
+Cloak is a Windows-native, terminal-based, end-to-end encrypted peer-to-peer messenger. v0.4.0 completes Phase 4 (Internet relay + invite-code discovery). The architecture was deliberately more ambitious than Phase 1's feature set required — each phase added a new concrete implementation behind an existing abstraction without touching upstream code.
 
 ## System shape
 
 ```
-┌─ EncryptiV (one installed binary per machine) ───────────┐
+┌─ Cloak (one installed binary per machine) ───────────┐
 │                                                          │
 │   ChatApplication         ← top-level orchestrator       │
 │       │                                                  │
@@ -29,7 +29,7 @@ EncryptiV is a Windows-native, terminal-based, end-to-end encrypted peer-to-peer
 │                          │         │         │           │
 │                   TcpTransport  LanMailbox  RelayTransport │
 │                                                          │
-│   RelayServer (ev-relay.exe) ← standalone relay binary   │
+│   RelayServer (cloak-relay.exe) ← standalone relay binary   │
 │                                                          │
 │   Crypto (static class)  ← libsodium facade              │
 │                                                          │
@@ -47,7 +47,7 @@ Two installed instances on the same LAN discover each other via mDNS, handshake 
 5. **Plug and play.** Install, launch, chat. Zero configuration for the common case. Defaults are safe.
 6. **Failure is loud.** No silent fallback to weaker crypto. No TOFU-then-forget. Identity changes alert the user.
 7. **Testing discipline.** Unit tests everywhere, property tests for protocol code, integration tests that spin up two instances and exchange messages, ASan in CI, fuzzers on every parser.
-8. **Secrets never leave secure containers.** All key material in an `ev::SecureBuffer` that mlocks and zeros. Never logged. Never serialized unencrypted.
+8. **Secrets never leave secure containers.** All key material in an `cloak::SecureBuffer` that mlocks and zeros. Never logged. Never serialized unencrypted.
 
 ## Class model
 
@@ -84,7 +84,7 @@ Maintains the map of `PeerId → Session`. Routes incoming connections to the ri
 Typed message. Phase 1 has `TextMessage`; Phase 2 adds `FileMessage`. The discriminated union is a `std::variant` that serializes through a versioned wire format so new types don't break old clients.
 
 ### MessageStore
-Persistent storage: identities, peers, sessions, message history. SQLite with libsodium column-level AEAD for sensitive fields. Database file at `%APPDATA%\EncryptiV\store.db`. Schema migrations from day one.
+Persistent storage: identities, peers, sessions, message history. SQLite with libsodium column-level AEAD for sensitive fields. Database file at `%APPDATA%\Cloak\store.db`. Schema migrations from day one.
 
 DB key is derived via Argon2id from the user's passphrase at application startup, held in a `SecureBuffer`, and never written to disk.
 
@@ -110,7 +110,7 @@ Rule: no shared mutable state without a strand. Invariant is enforced by keeping
 ## Repo layout
 
 ```
-encryptiv-chat/
+cloak-chat/
 ├── GEMINI.md                    ← operational brief for agent
 ├── ARCHITECTURE.md
 ├── THREAT_MODEL.md
@@ -132,7 +132,7 @@ encryptiv-chat/
 ├── cmake/
 │   ├── warnings.cmake
 │   ├── msvc_options.cmake
-│   └── ev_add_library.cmake
+│   └── cloak_add_library.cmake
 ├── docs/
 │   ├── adr/
 │   │   ├── README.md
@@ -154,7 +154,7 @@ encryptiv-chat/
 │   ├── store/
 │   ├── ui/
 │   └── app/                     ← ChatApplication + main
-├── include/ev/
+├── include/cloak/
 ├── tests/
 │   ├── unit/
 │   ├── integration/
@@ -177,14 +177,14 @@ encryptiv-chat/
 ## Installer
 
 - **WiX Toolset v4** produces a signed MSI.
-- Installs to `%ProgramFiles%\EncryptiV\`.
+- Installs to `%ProgramFiles%\Cloak\`.
 - Start menu shortcut.
 - Registers mDNS service class on first run (no admin required).
-- Per-user data under `%APPDATA%\EncryptiV\`: `identity.bin`, `store.db`, `config.toml`, `logs/`.
+- Per-user data under `%APPDATA%\Cloak\`: `identity.bin`, `store.db`, `config.toml`, `logs/`.
 - Clean uninstall. User data preserved unless full-removal is opted into.
 - Code-signing: self-signed Authenticode cert for development, real cert before distribution.
 
-"Plug and play" operationally: download MSI → double-click → Next → Finish → launch → pick display name + passphrase on first run → see other EncryptiV instances on the LAN.
+"Plug and play" operationally: download MSI → double-click → Next → Finish → launch → pick display name + passphrase on first run → see other Cloak instances on the LAN.
 
 ## Wire format
 
@@ -207,9 +207,9 @@ Reserved field ranges, optional fields, version integers in envelopes — design
 
 ## Logging
 
-spdlog, rotating file logs under `%APPDATA%\EncryptiV\logs\`. Default level info.
+spdlog, rotating file logs under `%APPDATA%\Cloak\logs\`. Default level info.
 
-**Never logged:** private keys, passphrases, plaintext message bodies, raw Noise handshake messages, session keys, DB key. `log_sensitive(...)` wrapper expands to `<redacted>` unless `EV_UNSAFE_LOG_SECRETS=1` in a debug build. CI lint forbids `spdlog::` calls on secret-bearing types.
+**Never logged:** private keys, passphrases, plaintext message bodies, raw Noise handshake messages, session keys, DB key. `log_sensitive(...)` wrapper expands to `<redacted>` unless `CLOAK_UNSAFE_LOG_SECRETS=1` in a debug build. CI lint forbids `spdlog::` calls on secret-bearing types.
 
 ## Error handling
 

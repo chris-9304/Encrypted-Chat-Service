@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(EncryptiV LANGUAGES CXX C)
+project(Cloak LANGUAGES CXX C)
 
 # MSVC is set only after project() declares the languages.
 if(NOT MSVC OR NOT CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    message(FATAL_ERROR "EncryptiV targets MSVC on Windows exclusively. See WINDOWS_BUILD.md.")
+    message(FATAL_ERROR "Cloak targets MSVC on Windows exclusively. See WINDOWS_BUILD.md.")
 endif()
 
 set(CMAKE_CXX_STANDARD 23)
@@ -15,14 +15,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(warnings)
 include(msvc_options)
-include(ev_add_library)
+include(cloak_add_library)
 
-# Make <ev/...> angle-bracket includes available to all targets in the tree.
+# Make <cloak/...> angle-bracket includes available to all targets in the tree.
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 # Apply global options
-ev_apply_msvc_options()
+cloak_apply_msvc_options()
 
 # Set up testing if this is not a subproject
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
@@ -45,7 +45,7 @@ find_package(wil             CONFIG REQUIRED)
 # protobuf: available but not yet used in Phase 2 (wire format is hand-rolled)
 # find_package(protobuf CONFIG REQUIRED)
 
-# Convenience alias: ev_add_library uses "unofficial::sqlite3::sqlite3".
+# Convenience alias: cloak_add_library uses "unofficial::sqlite3::sqlite3".
 # No alias needed — that IS the vcpkg target name.
 
 # ── Source directories ────────────────────────────────────────────────────────

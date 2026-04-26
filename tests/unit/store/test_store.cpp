@@ -1,13 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ev/store/message_store.h>
-#include <ev/crypto/crypto.h>
-#include <ev/identity/peer_directory.h>
+#include <cloak/store/message_store.h>
+#include <cloak/crypto/crypto.h>
+#include <cloak/identity/peer_directory.h>
 #include <filesystem>
 #include <cstring>
 
-using namespace ev::store;
-using namespace ev::core;
-using namespace ev::crypto;
+using namespace cloak::store;
+using namespace cloak::core;
+using namespace cloak::crypto;
 
 namespace {
 
@@ -24,9 +24,9 @@ SecureBuffer<32> make_key() {
 }
 
 // Build a minimal valid Message (from=sender, to=recipient).
-ev::wire::Message make_msg(const PeerId& from, const PeerId& to,
+cloak::wire::Message make_msg(const PeerId& from, const PeerId& to,
                            const std::string& body = "Hello") {
-    ev::wire::Message m;
+    cloak::wire::Message m;
     static_cast<void>(Crypto::random_bytes(
         std::span<std::byte>(reinterpret_cast<std::byte*>(m.id.bytes.data()), 16)));
     m.from      = from;
@@ -141,25 +141,25 @@ TEST_CASE("MessageStore: peer persistence round-trip", "[store]") {
     auto store = MessageStore::open(path, key);
     REQUIRE(store.has_value());
 
-    ev::identity::PeerDirectory dir1;
-    ev::identity::PeerRecord rec;
+    cloak::identity::PeerDirectory dir1;
+    cloak::identity::PeerRecord rec;
     static_cast<void>(Crypto::random_bytes(
         std::span<std::byte>(
             reinterpret_cast<std::byte*>(rec.signing_public_key.bytes.data()), 32)));
     rec.fingerprint  = "ABCD-EFGH-IJKL";
     rec.display_name = "TestPeer";
-    rec.trust        = ev::core::TrustStatus::Tofu;
+    rec.trust        = cloak::core::TrustStatus::Tofu;
     REQUIRE(dir1.upsert(rec).has_value());
 
     REQUIRE(store->save_peers(dir1).has_value());
 
-    ev::identity::PeerDirectory dir2;
+    cloak::identity::PeerDirectory dir2;
     REQUIRE(store->load_peers(dir2).has_value());
     auto all = dir2.all();
     REQUIRE(all.has_value());
     REQUIRE(all->size() == 1);
     CHECK((*all)[0].display_name == "TestPeer");
-    CHECK((*all)[0].trust == ev::core::TrustStatus::Tofu);
+    CHECK((*all)[0].trust == cloak::core::TrustStatus::Tofu);
 
     std::filesystem::remove(path);
 }

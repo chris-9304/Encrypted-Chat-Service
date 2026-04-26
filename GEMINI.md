@@ -4,7 +4,7 @@ This file is read by Gemini (Antigravity) at session start. It encodes the non-n
 
 ## Project
 
-**EncryptiV** — a Windows-native, terminal-based, end-to-end encrypted peer-to-peer LAN messenger in modern C++. Phase 1 delivers working LAN text chat between two installed instances and builds the foundation for later files, groups, multi-device, and optional cross-network transports.
+**Cloak** — a Windows-native, terminal-based, end-to-end encrypted peer-to-peer LAN messenger in modern C++. Phase 1 delivers working LAN text chat between two installed instances and builds the foundation for later files, groups, multi-device, and optional cross-network transports.
 
 ## Platform
 
@@ -29,7 +29,7 @@ Phase 1 — see `ROADMAP.md` for milestone breakdown. Build the Phase 1 features
 
 1. **No custom cryptographic primitives.** libsodium only. If a primitive isn't in libsodium, stop and ask.
 2. **No raw `new` / `delete`.** Smart pointers or RAII wrappers only.
-3. **Every key buffer is `ev::SecureBuffer`.** mlocked, zeroed, move-only.
+3. **Every key buffer is `cloak::SecureBuffer`.** mlocked, zeroed, move-only.
 4. **No secret material is ever logged.** Use `log_sensitive(...)`. CI lint enforces.
 5. **Every parser has a libFuzzer harness.** Protobuf decoders, framing, Noise message parsing, any config/TOML.
 6. **Warnings are errors.** `/W4 /WX /permissive-`. Fix; never suppress.
@@ -49,7 +49,7 @@ CMakePresets.json            vcpkg.json         vcpkg-configuration.json
 .clang-format  .clang-tidy   .editorconfig      .gitignore
 cmake/                       docs/adr/          docs/archive/
 src/{core,crypto,identity,wire,discovery,transport,session,store,ui,app}/
-include/ev/
+include/cloak/
 tests/{unit,integration,fuzz,vectors}/
 proto/   installer/   .github/workflows/
 ```
@@ -63,7 +63,7 @@ proto/   installer/   .github/workflows/
   - Functions and variables: `snake_case` (`perform_handshake`, `peer_id`).
   - Constants and enumerators: `kCamelCase` (`kMaxMessageSize`).
   - Private members: trailing underscore (`identity_`, `transport_`).
-  - Namespaces: `snake_case` (`ev::crypto`, `ev::transport`).
+  - Namespaces: `snake_case` (`cloak::crypto`, `cloak::transport`).
 - Headers: `#pragma once`. Include what you use. System headers with `<...>`, project headers with `"..."`.
 - One class per header/source pair. Small focused classes; split aggressively.
 

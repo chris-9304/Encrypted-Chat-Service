@@ -22,7 +22,7 @@ cmake --preset release && cmake --build --preset release --target installer
 
 ## Architecture
 
-EncryptiV is a Windows-native terminal P2P messenger (v0.4.0 — Phase 4 complete). Phase 1: LAN text chat. Phase 2: Double Ratchet, file transfer, receipts. Phase 3: Sender-Key group chat, multi-device via device certs, group/peer persistence. Phase 4: Internet relay transport, invite-code peer discovery.
+Cloak is a Windows-native terminal P2P messenger (v0.4.0 — Phase 4 complete). Phase 1: LAN text chat. Phase 2: Double Ratchet, file transfer, receipts. Phase 3: Sender-Key group chat, multi-device via device certs, group/peer persistence. Phase 4: Internet relay transport, invite-code peer discovery.
 
 **Module ownership** (each is a separate CMake library under `src/`):
 
@@ -38,7 +38,7 @@ EncryptiV is a Windows-native terminal P2P messenger (v0.4.0 — Phase 4 complet
 | `store` | SQLite with column-level XChaCha20-Poly1305 AEAD. DB key derived from passphrase via Argon2id at startup |
 | `group` | Phase 3 multi-party encryption (Sender Key model, Ed25519-signed) |
 | `transfer` | Phase 2 file transfer, 64 KiB chunks, per-file AEAD key |
-| `relay` | Phase 4 relay server (`ev-relay.exe`) — transparent TCP multiplexer for NAT traversal |
+| `relay` | Phase 4 relay server (`cloak-relay.exe`) — transparent TCP multiplexer for NAT traversal |
 | `ui` | FTXUI terminal TUI |
 | `app` | `ChatApplication` — top-level orchestrator. Owns all the above. One per process |
 
@@ -50,19 +50,19 @@ EncryptiV is a Windows-native terminal P2P messenger (v0.4.0 — Phase 4 complet
 
 ## Key design invariants
 
-- **No custom crypto.** libsodium primitives only via `ev::crypto::Crypto`. Never call libsodium directly.
+- **No custom crypto.** libsodium primitives only via `cloak::crypto::Crypto`. Never call libsodium directly.
 - **Secrets in `SecureBuffer` only.** Never copy key material into `std::vector` or `std::string`.
-- **`EV_UNSAFE_LOG_SECRETS=1`** enables secret logging in debug builds. CI forbids logging on secret-bearing types.
+- **`CLOAK_UNSAFE_LOG_SECRETS=1`** enables secret logging in debug builds. CI forbids logging on secret-bearing types.
 - **`std::expected<T, Error>`** for recoverable errors throughout. Exceptions only for genuinely unexpected situations.
 - **TOFU is loud.** `TrustStatus::Changed` must surface as a user-visible alert — never silently accept a new key.
 
 ## Public headers
 
-The `include/ev/` tree mirrors `src/` and exposes the public API of each module. The `src/` tree has the implementations. Both are on the include path so `<ev/core/types.h>` and `"core/types.h"` both work; prefer the angle-bracket form in headers.
+The `include/cloak/` tree mirrors `src/` and exposes the public API of each module. The `src/` tree has the implementations. Both are on the include path so `<cloak/core/types.h>` and `"core/types.h"` both work; prefer the angle-bracket form in headers.
 
 ## Testing
 
-Tests live in `tests/unit/<module>/`. The `cmake/ev_add_library.cmake` macro auto-discovers `tests/unit/<name>/*.cpp` and creates `test_<name>` executables linked against `Catch2::Catch2WithMain`. RFC test vectors are in `tests/vectors/`. Fuzz harnesses in `tests/fuzz/`.
+Tests live in `tests/unit/<module>/`. The `cmake/cloak_add_library.cmake` macro auto-discovers `tests/unit/<name>/*.cpp` and creates `test_<name>` executables linked against `Catch2::Catch2WithMain`. RFC test vectors are in `tests/vectors/`. Fuzz harnesses in `tests/fuzz/`.
 
 Coverage targets: `crypto/`, `identity/`, `session/` ≥ 85%; others ≥ 70%.
 
@@ -75,23 +75,38 @@ Coverage targets: `crypto/`, `identity/`, `session/` ≥ 85%; others ≥ 70%.
 - **`session_recv_func_impl`** drives a `switch` on `InnerType` — add new cases here for new inner types.
 - **Group persistence:** call `store_->save_group(group_mgr_.snapshot(gid))` on create/join/leave. Groups are loaded into `GroupManager` via `restore()` on startup.
 - **Safety numbers** are 60 decimal digits in groups of 10 separated by spaces (6 groups of 2 digits × 5 bytes, each byte `% 100`).
-- **Relay protocol:** 37-byte client handshake (magic EVR1 + role + 32-byte room_id), 1-byte server response. After pairing, raw bytes forwarded transparently.
+- **Relay protocol:** 37-byte client handshake (magic CLK1 + role + 32-byte room_id), 1-byte server response. After pairing, raw bytes forwarded transparently.
 - **Invite codes** format: `<relay_host>:<relay_port>/<room_id_hex64>`. Room ID derived as BLAKE2b-256(sign_pub || random_16).
 
 ## Phase 4: Internet Relay
 
-`ev-relay.exe` is a standalone relay server. Run it on any publicly reachable host:
+`cloak-relay.exe` is a standalone relay server. Run it on any publicly reachable host:
 
 ```powershell
-ev-relay.exe --port 8765
+cloak-relay.exe --port 8765
+```
+
+For networks that block non-standard ports (university, office, public WiFi) run the relay on port 443 — most firewalls allow outbound 443:
+```powershell
+cloak-relay.exe --port 443
 ```
 
 Client workflow:
 1. Both parties need network access to the relay host.
 2. Inviter: `--relay <host:port>` flag at startup, then `/make-invite` → prints an invite code.
-3. Invitee: `/connect-invite <code>` → connects through relay → full EncryptiV session established.
+3. Invitee: `/connect-invite <code>` → connects through relay → full Cloak session established.
 
 The relay never sees plaintext — all cryptography runs on top of the relay transport.
+
+## Offline Message Queue
+
+Messages typed when the active session is dead are queued in memory (keyed by peer fingerprint). When that peer reconnects (via TCP or relay) the receive thread drains the queue automatically before entering the normal receive loop. No persistence across process restart — the queue is in-memory only.
+
+Lock order: always acquire `session_mutex_` before `queue_mutex_`. Never reverse this order.
+
+## File / Image / Video Transfer
+
+Use `/send <path>` for any file type. MIME type is detected from the file extension and transmitted in `FileMetadata`. The transfer layer splits any file into 64 KiB chunks, each encrypted with a per-file XChaCha20-Poly1305 key. The file key itself is sealed in the session. Supported extensions with auto-detected MIME: jpg/jpeg, png, gif, webp, mp4, mkv, mov, avi, mp3, wav, pdf, txt, zip, 7z. Any other extension transfers as `application/octet-stream`.
 
 ## ADRs
 
@@ -104,6 +119,6 @@ The relay never sees plaintext — all cryptography runs on top of the relay tra
 
 ## Runtime paths
 
-- Identity: `%APPDATA%\EncryptiV\identity.bin`
-- Database: `%APPDATA%\EncryptiV\store.db`
-- Logs: `%APPDATA%\EncryptiV\logs\` (spdlog rotating, default level info)
+- Identity: `%APPDATA%\Cloak\identity.bin`
+- Database: `%APPDATA%\Cloak\store.db`
+- Logs: `%APPDATA%\Cloak\logs\` (spdlog rotating, default level info)

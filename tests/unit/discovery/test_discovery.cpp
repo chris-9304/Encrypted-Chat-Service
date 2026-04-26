@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ev/discovery/loopback_discovery.h>
+#include <cloak/discovery/loopback_discovery.h>
 
-using namespace ev::discovery;
+using namespace cloak::discovery;
 
 TEST_CASE("Loopback discovery bindings", "[discovery]") {
     LoopbackDiscoveryService svc;
