@@ -80,10 +80,16 @@ public:
 
     // ── Accessors ─────────────────────────────────────────────────────────────
 
-    const ev::core::GroupId&         group_id()   const { return group_id_; }
-    const std::string&               group_name() const { return group_name_; }
+    const ev::core::GroupId&         group_id()    const { return group_id_; }
+    const std::string&               group_name()  const { return group_name_; }
     const ev::core::PublicKey&       own_sign_pub() const { return own_sign_pub_; }
-    const std::vector<MemberState>&  members()    const { return members_; }
+    const std::vector<MemberState>&  members()     const { return members_; }
+    uint32_t                         own_counter() const { return own_counter_; }
+
+    // Copy sensitive key material out for persistence (caller must immediately
+    // encrypt the output; these bytes must not linger in memory unprotected).
+    void copy_own_sign_sk(std::array<uint8_t, 64>& out) const;
+    void copy_own_chain_key(std::array<uint8_t, 32>& out) const;
 
     // Move-only (SecureBuffer members).
     GroupSession(GroupSession&&)            = default;

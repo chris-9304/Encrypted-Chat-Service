@@ -3,6 +3,7 @@ ev_add_library(
     SOURCES
         tcp_transport.cpp
         mailbox_transport.cpp
+        relay_transport.cpp
     DEPS
         core
         Boost::boost

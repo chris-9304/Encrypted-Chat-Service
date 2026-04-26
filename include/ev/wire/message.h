@@ -10,7 +10,8 @@ namespace ev::wire {
 // in this struct — only plaintext after successful AEAD decryption.
 struct Message {
     ev::core::MessageId id;
-    ev::core::PeerId    from;
+    ev::core::PeerId    from;        // sender signing-pub (as PeerId bytes)
+    ev::core::PeerId    to;          // recipient signing-pub (as PeerId bytes)
     ev::core::Timestamp timestamp;
     std::string         body;        // UTF-8 plaintext
     bool                is_delivered{false};

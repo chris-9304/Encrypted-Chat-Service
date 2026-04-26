@@ -218,9 +218,10 @@ enum class InnerType : uint8_t {
     Text         = 0x00,
     FileMetadata = 0x01,
     Receipt      = 0x02,
-    Typing       = 0x03, // Phase 2 typing indicator
-    GroupOp      = 0x04, // Phase 3: group operation (sent via pairwise DR)
-    DeviceLink   = 0x05, // Phase 3: device linking certificate
+    Typing       = 0x03,
+    GroupOp      = 0x04, // group lifecycle op (pairwise DR)
+    DeviceLink   = 0x05, // device linking certificate (pairwise DR)
+    GroupMessage = 0x06, // broadcast group ciphertext (pairwise DR wrapper)
 };
 
 } // namespace ev::wire

@@ -117,9 +117,9 @@ bool DeviceRegistry::is_secondary() const {
     return role_ == DeviceRole::Secondary;
 }
 
-const std::optional<DeviceCert>& DeviceRegistry::own_cert() const {
+std::optional<DeviceCert> DeviceRegistry::own_cert() const {
     std::lock_guard lock(mu_);
-    return own_cert_;
+    return own_cert_; // returns a copy; safe to use after lock is released
 }
 
 std::optional<PublicKey> DeviceRegistry::primary_signing_key() const {

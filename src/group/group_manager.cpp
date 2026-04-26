@@ -1,6 +1,7 @@
 #include <ev/group/group_manager.h>
 #include <cstring>
 #include <span>
+#include <optional>
 
 namespace ev::group {
 
@@ -123,6 +124,45 @@ Result<ev::wire::GroupOpPayload> GroupManager::invite(
                                            "Group not found"));
     }
     return it->second.make_invite_op(invitee_signing_pub);
+}
+
+Result<void> GroupManager::restore(GroupSession&& gs) {
+    std::lock_guard lock(mu_);
+    const GroupId gid = gs.group_id();
+    if (groups_.count(gid)) return {}; // already present; skip
+    groups_.emplace(gid, std::move(gs));
+    return {};
+}
+
+std::optional<ev::store::GroupSessionRecord> GroupManager::snapshot(
+    const GroupId& gid) const {
+
+    std::lock_guard lock(mu_);
+    auto it = groups_.find(gid);
+    if (it == groups_.end()) return std::nullopt;
+
+    const GroupSession& gs = it->second;
+
+    ev::store::GroupSessionRecord rec;
+    rec.group_id   = gs.group_id();
+    rec.group_name = gs.group_name();
+
+    // Copy signing secret key bytes (64 bytes).
+    gs.copy_own_sign_sk(rec.own_sign_sk);
+    std::memcpy(rec.own_sign_pub.data(), gs.own_sign_pub().bytes.data(), 32);
+    gs.copy_own_chain_key(rec.own_chain_key);
+    rec.own_counter = gs.own_counter();
+
+    for (const auto& ms : gs.members()) {
+        ev::store::GroupMemberRecord mr;
+        mr.group_id = gid;
+        std::memcpy(mr.signing_pub.data(), ms.signing_pub.bytes.data(), 32);
+        mr.chain_key = ms.chain_key;
+        mr.counter   = ms.counter;
+        rec.members.push_back(std::move(mr));
+    }
+
+    return rec;
 }
 
 } // namespace ev::group

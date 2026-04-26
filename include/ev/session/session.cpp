@@ -595,19 +595,16 @@ Session::dr_decrypt(const AppPayload& payload) {
 
 // ── Public messaging API ──────────────────────────────────────────────────────
 
-Result<void> Session::send_text(const std::string& body) {
+Result<void> Session::send_inner(InnerType type,
+                                  std::span<const std::byte> payload) {
     if (state_ != SessionState::Established) {
         return std::unexpected(Error::from(ErrorCode::NotEstablished,
                                            "Session not established"));
     }
-
-    // Inner plaintext: [1-byte type=Text][UTF-8 body]
     std::vector<std::byte> inner;
-    inner.reserve(1 + body.size());
-    inner.push_back(static_cast<std::byte>(InnerType::Text));
-    inner.insert(inner.end(),
-                 reinterpret_cast<const std::byte*>(body.data()),
-                 reinterpret_cast<const std::byte*>(body.data()) + body.size());
+    inner.reserve(1 + payload.size());
+    inner.push_back(static_cast<std::byte>(type));
+    inner.insert(inner.end(), payload.begin(), payload.end());
 
     auto enc_res = dr_encrypt(std::span<const std::byte>(inner));
     if (!enc_res) return std::unexpected(enc_res.error());
@@ -624,7 +621,13 @@ Result<void> Session::send_text(const std::string& body) {
     return {};
 }
 
-Result<std::string> Session::recv_text() {
+Result<void> Session::send_text(const std::string& body) {
+    return send_inner(InnerType::Text,
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(body.data()), body.size()));
+}
+
+Result<std::pair<InnerType, std::vector<std::byte>>> Session::recv_message() {
     if (state_ != SessionState::Established) {
         return std::unexpected(Error::from(ErrorCode::NotEstablished,
                                            "Session not established"));
@@ -646,43 +649,38 @@ Result<std::string> Session::recv_text() {
     auto inner = dr_decrypt(*app);
     if (!inner) return std::unexpected(inner.error());
 
-    if (inner->empty() || (*inner)[0] != static_cast<std::byte>(InnerType::Text)) {
+    if (inner->empty()) {
         return std::unexpected(Error::from(ErrorCode::FramingError,
-                                           "Inner payload is not Text type"));
+                                           "Empty inner payload"));
     }
 
+    const auto inner_type = static_cast<InnerType>((*inner)[0]);
+    std::vector<std::byte> body(inner->begin() + 1, inner->end());
+    return std::make_pair(inner_type, std::move(body));
+}
+
+Result<std::string> Session::recv_text() {
+    auto msg = recv_message();
+    if (!msg) return std::unexpected(msg.error());
+
+    if (msg->first != InnerType::Text) {
+        return std::unexpected(Error::from(ErrorCode::FramingError,
+                                           "Expected Text inner type, got " +
+                                           std::to_string(static_cast<uint8_t>(msg->first))));
+    }
     return std::string(
-        reinterpret_cast<const char*>(inner->data() + 1),
-        inner->size() - 1);
+        reinterpret_cast<const char*>(msg->second.data()),
+        msg->second.size());
 }
 
 Result<void> Session::send_receipt(ReceiptType type, const MessageId& mid) {
-    if (state_ != SessionState::Established) {
-        return std::unexpected(Error::from(ErrorCode::NotEstablished,
-                                           "Session not established"));
-    }
-
-    // Encode receipt as an inner payload, then encrypt via DR.
-    std::vector<std::byte> inner;
-    inner.push_back(static_cast<std::byte>(InnerType::Receipt));
-    inner.push_back(static_cast<std::byte>(type));
-    inner.insert(inner.end(),
-                 reinterpret_cast<const std::byte*>(mid.bytes.data()),
-                 reinterpret_cast<const std::byte*>(mid.bytes.data()) + 16);
-
-    auto enc_res2 = dr_encrypt(std::span<const std::byte>(inner));
-    if (!enc_res2) return std::unexpected(enc_res2.error());
-
-    AppPayload p{enc_res2->first, std::move(enc_res2->second)};
-    auto encoded = encode_app(p);
-    if (!encoded) return std::unexpected(encoded.error());
-
-    Frame f{MessageType::AppMessage, std::move(*encoded)};
-    if (auto sr = send_frame(f); !sr) {
-        state_ = SessionState::Closed;
-        return std::unexpected(sr.error());
-    }
-    return {};
+    std::vector<std::byte> payload;
+    payload.push_back(static_cast<std::byte>(type));
+    payload.insert(payload.end(),
+                   reinterpret_cast<const std::byte*>(mid.bytes.data()),
+                   reinterpret_cast<const std::byte*>(mid.bytes.data()) + 16);
+    return send_inner(InnerType::Receipt,
+                      std::span<const std::byte>(payload));
 }
 
 // ── Frame I/O ─────────────────────────────────────────────────────────────────

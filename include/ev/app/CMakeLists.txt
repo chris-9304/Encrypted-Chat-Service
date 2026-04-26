@@ -13,6 +13,7 @@ ev_add_library(
         discovery
         transfer
         group
+        relay
 )
 
 add_executable(ev-chat main.cpp)

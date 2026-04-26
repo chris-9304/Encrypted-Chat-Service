@@ -10,7 +10,6 @@
 namespace ev::session {
 
 // Manages the set of live sessions.  Thread-safe via an internal mutex.
-// Phase 2: adds per-session strands (Asio) for concurrent sessions.
 class SessionManager {
 public:
     SessionManager() = default;
@@ -21,15 +20,21 @@ public:
     SessionManager(SessionManager&&)                 = delete;
     SessionManager& operator=(SessionManager&&)      = delete;
 
-    ev::core::Result<void> add_session(Session&& s);
+    // Add a session; returns its assigned SessionId.
+    ev::core::Result<ev::core::SessionId> add_session(Session&& s);
+
+    // Remove session by ID.  Returns PeerNotFound if no such session.
     ev::core::Result<void> remove_session(const ev::core::SessionId& id);
 
-    // Iterate over live sessions (calls f with each; stops on error).
+    // Remove session by peer signing key.  Returns PeerNotFound if not found.
+    ev::core::Result<void> remove_by_peer_key(const ev::core::PublicKey& signing_pub);
+
+    // Iterate over live sessions (calls f with each session and its ID).
     template <typename F>
     void for_each(F&& f) {
         std::lock_guard lock(mu_);
-        for (auto& s : sessions_) {
-            f(*s);
+        for (auto& [id, s] : sessions_) {
+            f(id, *s);
         }
     }
 
@@ -39,8 +44,9 @@ public:
     }
 
 private:
-    mutable std::mutex                        mu_;
-    std::vector<std::unique_ptr<Session>>     sessions_;
+    mutable std::mutex mu_;
+    std::vector<std::pair<ev::core::SessionId, std::unique_ptr<Session>>> sessions_;
+    uint64_t next_id_{1};
 };
 
 } // namespace ev::session

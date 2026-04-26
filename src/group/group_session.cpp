@@ -1,5 +1,5 @@
 #include <ev/group/group_session.h>
-#include <sodium.h>
+#include <ev/crypto/crypto.h>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -20,39 +20,39 @@ namespace {
 constexpr std::byte kChainByte{0x02};
 constexpr std::byte kMsgByte{0x01};
 
-// HMAC-SHA256 one-byte constant KDF step.
+// HMAC-SHA256 one-byte constant KDF step via Crypto facade.
+// Accepts plain array<uint8_t,32> by copying into a temporary SecureBuffer
+// so the copy is securely zeroed when the call returns.
 Result<SecureBuffer<32>> hmac_step(
     const std::array<uint8_t, 32>& key, std::byte constant) {
 
-    SecureBuffer<32> out;
-    if (crypto_auth_hmacsha256(
-            out.data(),
-            reinterpret_cast<const unsigned char*>(&constant), 1,
-            key.data()) != 0) {
-        return std::unexpected(Error::from(ErrorCode::CryptoError,
-                                           "HMAC-SHA256 failed"));
-    }
-    return out;
+    SecureBuffer<32> key_sb;
+    std::memcpy(key_sb.data(), key.data(), 32);
+    return Crypto::hmac_sha256(key_sb, std::span<const std::byte>(&constant, 1));
 }
 
-// Derive nonce for group message AEAD from mk + group_id + msg_num.
+// Derive 24-byte group-AEAD nonce: first 24 bytes of BLAKE2b-256(mk || gid || msg_num_BE).
+// Note: this produces a 24-byte prefix of the 32-byte BLAKE2b-256 hash.
 std::vector<std::byte> group_aead_nonce(
     const SecureBuffer<32>& mk,
     const GroupId& gid, uint32_t msg_num) {
 
-    // nonce = first 24 bytes of BLAKE2b(mk || group_id || msg_num)
     std::array<uint8_t, 32 + 16 + 4> buf{};
-    std::memcpy(buf.data(),      mk.data(),          32);
-    std::memcpy(buf.data() + 32, gid.bytes.data(),   16);
+    std::memcpy(buf.data(),      mk.data(),        32);
+    std::memcpy(buf.data() + 32, gid.bytes.data(), 16);
     const uint32_t n_be = htonl(msg_num);
     std::memcpy(buf.data() + 48, &n_be, 4);
 
+    auto hash = Crypto::blake2b_256(
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(buf.data()), buf.size()));
+    SecureZeroMemory(buf.data(), buf.size());
+
     std::vector<std::byte> nonce(24);
-    crypto_generichash(
-        reinterpret_cast<unsigned char*>(nonce.data()), 24,
-        buf.data(), buf.size(),
-        nullptr, 0);
-    sodium_memzero(buf.data(), buf.size());
+    if (hash) {
+        for (size_t i = 0; i < 24; ++i)
+            nonce[i] = static_cast<std::byte>((*hash)[i]);
+    }
     return nonce;
 }
 
@@ -183,7 +183,6 @@ Result<void> GroupSession::apply_op(const GroupOpPayload& op) {
         // Register sender's chain key.
         auto* existing = find_member(op.member_key);
         if (existing) {
-            // Update chain key snapshot (forward to current counter).
             std::memcpy(existing->chain_key.data(), op.chain_key.data(), 32);
             existing->counter = op.chain_counter;
         } else {
@@ -193,13 +192,11 @@ Result<void> GroupSession::apply_op(const GroupOpPayload& op) {
             ms.counter = op.chain_counter;
             members_.push_back(std::move(ms));
         }
-        // Update group name if provided.
         if (!op.group_name.empty()) group_name_ = op.group_name;
         break;
     }
     case GroupOpType::Leave:
     case GroupOpType::Kick: {
-        // Remove member from list.
         members_.erase(
             std::remove_if(members_.begin(), members_.end(),
                 [&](const MemberState& ms) {
@@ -228,7 +225,7 @@ Result<GroupMessagePayload> GroupSession::encrypt(
 
     // AAD = group_id || sender_pub || msg_num_BE
     std::array<uint8_t, 16 + 32 + 4> aad_buf{};
-    std::memcpy(aad_buf.data(),      group_id_.bytes.data(), 16);
+    std::memcpy(aad_buf.data(),      group_id_.bytes.data(),   16);
     std::memcpy(aad_buf.data() + 16, own_sign_pub_.bytes.data(), 32);
     const uint32_t n_be = htonl(msg_num);
     std::memcpy(aad_buf.data() + 48, &n_be, 4);
@@ -316,7 +313,7 @@ Result<std::pair<PublicKey, std::string>> GroupSession::decrypt(
 
     // AAD = group_id || sender_pub || msg_num_BE.
     std::array<uint8_t, 16 + 32 + 4> aad_buf{};
-    std::memcpy(aad_buf.data(),      msg.group_id.bytes.data(), 16);
+    std::memcpy(aad_buf.data(),      msg.group_id.bytes.data(),       16);
     std::memcpy(aad_buf.data() + 16, msg.sender_sign_pub.bytes.data(), 32);
     const uint32_t n_be = htonl(msg.message_number);
     std::memcpy(aad_buf.data() + 48, &n_be, 4);
@@ -334,6 +331,16 @@ Result<std::pair<PublicKey, std::string>> GroupSession::decrypt(
     return std::make_pair(
         msg.sender_sign_pub,
         std::string(reinterpret_cast<const char*>(pt->data()), pt->size()));
+}
+
+// ── Persistence helpers ───────────────────────────────────────────────────────
+
+void GroupSession::copy_own_sign_sk(std::array<uint8_t, 64>& out) const {
+    std::memcpy(out.data(), own_sign_sk_.data(), 64);
+}
+
+void GroupSession::copy_own_chain_key(std::array<uint8_t, 32>& out) const {
+    std::memcpy(out.data(), own_chain_key_.data(), 32);
 }
 
 // ── find_member ───────────────────────────────────────────────────────────────

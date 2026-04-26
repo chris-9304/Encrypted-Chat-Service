@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ev/core/error.h>
+#include <ev/core/types.h>
 #include <ev/discovery/discovery_service.h>
 #include <ev/group/group_manager.h>
 #include <ev/identity/device_registry.h>
@@ -8,6 +9,7 @@
 #include <ev/identity/peer_directory.h>
 #include <ev/session/session.h>
 #include <ev/store/message_store.h>
+#include <ev/transport/relay_transport.h>
 
 #include <atomic>
 #include <memory>
@@ -30,7 +32,6 @@ struct SessionEntry {
     explicit SessionEntry(std::unique_ptr<ev::session::Session> s)
         : session(std::move(s)) {}
 
-    // Move-only.
     SessionEntry(SessionEntry&&)            = default;
     SessionEntry& operator=(SessionEntry&&) = default;
     SessionEntry(const SessionEntry&)       = delete;
@@ -39,7 +40,8 @@ struct SessionEntry {
 
 class ChatApplication {
 public:
-    ChatApplication(std::string name, uint16_t port, std::string connect_target);
+    ChatApplication(std::string name, uint16_t port, std::string connect_target,
+                    std::optional<ev::core::Endpoint> relay_endpoint = std::nullopt);
     ~ChatApplication();
 
     ev::core::Result<void> run();
@@ -80,10 +82,15 @@ private:
     void cmd_link_device(const std::string& pub_hex);
     void cmd_install_cert(const std::string& cert_hex);
 
+    // Phase 4: relay / invite commands.
+    void cmd_make_invite();
+    void cmd_connect_invite(const std::string& code);
+
     // State.
     std::string my_name_;
     uint16_t    my_port_;
     std::string connect_target_;
+    std::optional<ev::core::Endpoint> relay_endpoint_; // Phase 4
 
     std::unique_ptr<ev::identity::Identity>           identity_;
     ev::identity::PeerDirectory                       peer_dir_;
@@ -94,7 +101,7 @@ private:
 
     // Active pairwise sessions.
     mutable std::mutex           session_mutex_;
-    std::vector<SessionEntry>    sessions_;      // guarded by session_mutex_
+    std::vector<SessionEntry>    sessions_;
     size_t                       current_session_idx_{0};
 
     // Active group selection.
@@ -105,7 +112,6 @@ private:
     std::thread       discovery_thread_;
     std::thread       cleanup_thread_;
 
-    // Message queue for background threads to post display output.
     mutable std::mutex              print_mutex_;
 };
 
