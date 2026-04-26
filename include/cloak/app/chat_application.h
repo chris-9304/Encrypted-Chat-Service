@@ -60,7 +60,6 @@ private:
     void cleanup_thread_func();
 
     // Per-session receive thread — drains offline queue then enters recv loop.
-    void session_recv_func(SessionEntry* entry);
     void session_recv_func_impl(std::shared_ptr<std::atomic<bool>> dead_flag,
                                 cloak::session::Session* session_ptr);
 

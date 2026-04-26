@@ -90,8 +90,6 @@ void ChatApplication::queue_for_peer(const std::string& fingerprint,
 
 // ── Per-session receive thread ────────────────────────────────────────────────
 
-void ChatApplication::session_recv_func(SessionEntry* /*entry*/) {}
-
 void ChatApplication::session_recv_func_impl(
     std::shared_ptr<std::atomic<bool>> dead_flag,
     cloak::session::Session*           session_ptr) {

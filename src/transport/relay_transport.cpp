@@ -1,5 +1,6 @@
 #include <cloak/transport/relay_transport.h>
 #include <boost/asio.hpp>
+#include <charconv>
 #include <iomanip>
 #include <sstream>
 
@@ -38,12 +39,13 @@ bool parse_invite_code(const std::string& code,
 
     if (room_hex.size() != 64) return false;
 
-    // Parse room hex.
+    // Parse room hex — from_chars avoids exceptions and per-byte allocations.
     for (size_t i = 0; i < 32; ++i) {
-        try {
-            out_room[i] = static_cast<uint8_t>(
-                std::stoi(room_hex.substr(i * 2, 2), nullptr, 16));
-        } catch (...) { return false; }
+        unsigned int byte_val = 0;
+        const char* begin = room_hex.data() + i * 2;
+        auto [ptr, ec] = std::from_chars(begin, begin + 2, byte_val, 16);
+        if (ec != std::errc{} || ptr != begin + 2) return false;
+        out_room[i] = static_cast<uint8_t>(byte_val);
     }
 
     // Parse relay "host:port".
@@ -51,11 +53,14 @@ bool parse_invite_code(const std::string& code,
     if (colon_pos == std::string::npos) return false;
 
     out_relay.address = relay_part.substr(0, colon_pos);
-    try {
-        const int port = std::stoi(relay_part.substr(colon_pos + 1));
-        if (port <= 0 || port > 65535) return false;
-        out_relay.port = static_cast<uint16_t>(port);
-    } catch (...) { return false; }
+
+    unsigned int port_val = 0;
+    const std::string port_str = relay_part.substr(colon_pos + 1);
+    auto [ptr, ec] = std::from_chars(port_str.data(),
+                                     port_str.data() + port_str.size(),
+                                     port_val);
+    if (ec != std::errc{} || port_val == 0 || port_val > 65535) return false;
+    out_relay.port = static_cast<uint16_t>(port_val);
 
     return true;
 }

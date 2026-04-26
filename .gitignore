@@ -21,3 +21,7 @@ configure_out.txt
 CMakeCache.txt
 cmake_install.cmake
 Makefile
+
+# Large binary blobs — not part of source distribution
+*.zip
+*.7z

@@ -1,11 +1,6 @@
 #include <cloak/group/group_session.h>
 #include <cloak/crypto/crypto.h>
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <winsock2.h>
-
 #include <algorithm>
 #include <cstring>
 
@@ -31,22 +26,25 @@ Result<SecureBuffer<32>> hmac_step(
     return Crypto::hmac_sha256(key_sb, std::span<const std::byte>(&constant, 1));
 }
 
-// Derive 24-byte group-AEAD nonce: first 24 bytes of BLAKE2b-256(mk || gid || msg_num_BE).
-// Note: this produces a 24-byte prefix of the 32-byte BLAKE2b-256 hash.
-std::vector<std::byte> group_aead_nonce(
-    const SecureBuffer<32>& mk,
-    const GroupId& gid, uint32_t msg_num) {
+// Write a uint32 in big-endian byte order (replaces htonl, which requires winsock2.h).
+static void write_be32(uint8_t* dst, uint32_t v) {
+    dst[0] = static_cast<uint8_t>(v >> 24);
+    dst[1] = static_cast<uint8_t>(v >> 16);
+    dst[2] = static_cast<uint8_t>(v >>  8);
+    dst[3] = static_cast<uint8_t>(v);
+}
 
-    std::array<uint8_t, 32 + 16 + 4> buf{};
-    std::memcpy(buf.data(),      mk.data(),        32);
-    std::memcpy(buf.data() + 32, gid.bytes.data(), 16);
-    const uint32_t n_be = htonl(msg_num);
-    std::memcpy(buf.data() + 48, &n_be, 4);
+// Derive a 24-byte AEAD nonce from public data: BLAKE2b-256(gid || msg_num_BE).
+// Secrecy comes from the AEAD key; the nonce only needs to be unique per key,
+// which group_id + counter guarantees without involving secret key material.
+std::vector<std::byte> group_aead_nonce(const GroupId& gid, uint32_t msg_num) {
+    std::array<uint8_t, 16 + 4> buf{};
+    std::memcpy(buf.data(), gid.bytes.data(), 16);
+    write_be32(buf.data() + 16, msg_num);
 
     auto hash = Crypto::blake2b_256(
         std::span<const std::byte>(
             reinterpret_cast<const std::byte*>(buf.data()), buf.size()));
-    SecureZeroMemory(buf.data(), buf.size());
 
     std::vector<std::byte> nonce(24);
     if (hash) {
@@ -71,10 +69,11 @@ std::vector<std::byte> signed_body(
     body.insert(body.end(),
         reinterpret_cast<const std::byte*>(sender_pub.bytes.data()),
         reinterpret_cast<const std::byte*>(sender_pub.bytes.data()) + 32);
-    const uint32_t n_be = htonl(msg_num);
+    uint8_t n_be[4];
+    write_be32(n_be, msg_num);
     body.insert(body.end(),
-        reinterpret_cast<const std::byte*>(&n_be),
-        reinterpret_cast<const std::byte*>(&n_be) + 4);
+        reinterpret_cast<const std::byte*>(n_be),
+        reinterpret_cast<const std::byte*>(n_be) + 4);
     body.insert(body.end(), ct.begin(), ct.end());
     return body;
 }
@@ -225,12 +224,11 @@ Result<GroupMessagePayload> GroupSession::encrypt(
 
     // AAD = group_id || sender_pub || msg_num_BE
     std::array<uint8_t, 16 + 32 + 4> aad_buf{};
-    std::memcpy(aad_buf.data(),      group_id_.bytes.data(),   16);
+    std::memcpy(aad_buf.data(),      group_id_.bytes.data(),     16);
     std::memcpy(aad_buf.data() + 16, own_sign_pub_.bytes.data(), 32);
-    const uint32_t n_be = htonl(msg_num);
-    std::memcpy(aad_buf.data() + 48, &n_be, 4);
+    write_be32(aad_buf.data() + 48, msg_num);
 
-    auto nonce = group_aead_nonce(*mk_res, group_id_, msg_num);
+    auto nonce = group_aead_nonce(group_id_, msg_num);
 
     auto ct = Crypto::aead_encrypt(
         *mk_res,
@@ -313,12 +311,11 @@ Result<std::pair<PublicKey, std::string>> GroupSession::decrypt(
 
     // AAD = group_id || sender_pub || msg_num_BE.
     std::array<uint8_t, 16 + 32 + 4> aad_buf{};
-    std::memcpy(aad_buf.data(),      msg.group_id.bytes.data(),       16);
+    std::memcpy(aad_buf.data(),      msg.group_id.bytes.data(),        16);
     std::memcpy(aad_buf.data() + 16, msg.sender_sign_pub.bytes.data(), 32);
-    const uint32_t n_be = htonl(msg.message_number);
-    std::memcpy(aad_buf.data() + 48, &n_be, 4);
+    write_be32(aad_buf.data() + 48, msg.message_number);
 
-    auto nonce = group_aead_nonce(*mk_res, msg.group_id, msg.message_number);
+    auto nonce = group_aead_nonce(msg.group_id, msg.message_number);
 
     auto pt = Crypto::aead_decrypt(
         *mk_res,

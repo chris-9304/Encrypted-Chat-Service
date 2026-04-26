@@ -1,7 +1,6 @@
 #include <cloak/session/session.h>
 #include <cloak/crypto/crypto.h>
 #include <cloak/wire/framing.h>
-#include <sodium.h>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -400,19 +399,15 @@ Result<void> Session::dr_ratchet(const PublicKey& peer_dr_pub) {
 
     // Step 1: DH(current DHs, new DHr) → receive chain
     {
-        SecureBuffer<32> dh1;
-        if (crypto_scalarmult(dh1.data(), dr_dhs_priv_.data(),
-                              peer_dr_pub_.bytes.data()) != 0 ||
-            sodium_is_zero(dh1.data(), 32)) {
-            return std::unexpected(Error::from(ErrorCode::CryptoError,
-                                               "DHRatchet: step1 DH failed"));
-        }
+        auto dh1 = Crypto::kx_agree(dr_dhs_priv_, peer_dr_pub_);
+        if (!dh1) return std::unexpected(
+            Error::from(ErrorCode::CryptoError, "DHRatchet: step1 DH failed"));
         auto res = kdf_rk(dr_rk_,
             std::span<const std::byte>(
-                reinterpret_cast<const std::byte*>(dh1.data()), 32));
+                reinterpret_cast<const std::byte*>(dh1->secret.data()), 32));
         if (!res) return std::unexpected(res.error());
-        dr_rk_       = std::move(res->first);
-        dr_ckr_      = std::move(res->second);
+        dr_rk_        = std::move(res->first);
+        dr_ckr_       = std::move(res->second);
         dr_ckr_valid_ = true;
     }
 
@@ -421,16 +416,12 @@ Result<void> Session::dr_ratchet(const PublicKey& peer_dr_pub) {
         auto new_kp = Crypto::kx_keypair();
         if (!new_kp) return std::unexpected(new_kp.error());
 
-        SecureBuffer<32> dh2;
-        if (crypto_scalarmult(dh2.data(), new_kp->private_key.data(),
-                              peer_dr_pub_.bytes.data()) != 0 ||
-            sodium_is_zero(dh2.data(), 32)) {
-            return std::unexpected(Error::from(ErrorCode::CryptoError,
-                                               "DHRatchet: step2 DH failed"));
-        }
+        auto dh2 = Crypto::kx_agree(new_kp->private_key, peer_dr_pub_);
+        if (!dh2) return std::unexpected(
+            Error::from(ErrorCode::CryptoError, "DHRatchet: step2 DH failed"));
         auto res = kdf_rk(dr_rk_,
             std::span<const std::byte>(
-                reinterpret_cast<const std::byte*>(dh2.data()), 32));
+                reinterpret_cast<const std::byte*>(dh2->secret.data()), 32));
         if (!res) return std::unexpected(res.error());
         dr_rk_        = std::move(res->first);
         dr_cks_       = std::move(res->second);
@@ -460,6 +451,12 @@ Result<void> Session::dr_skip_message_keys(uint32_t until) {
                                            "DR: too many skipped messages"));
     }
 
+    // Guard against unbounded map growth across multiple ratchet epochs.
+    if (dr_mkskipped_.size() + (until - dr_nr_) > static_cast<size_t>(kMaxSkip) * 5) {
+        return std::unexpected(Error::from(ErrorCode::CounterMismatch,
+                                           "DR: skipped-key cache full"));
+    }
+
     while (dr_nr_ < until) {
         auto ck_res = kdf_ck(dr_ckr_);
         if (!ck_res) return std::unexpected(ck_res.error());
@@ -481,16 +478,12 @@ Session::dr_encrypt(std::span<const std::byte> plaintext) {
         if (!dr_ckr_valid_ && is_initiator_) {
             // Initiator's very first send: perform ratchet with peer_dr_pub_.
             // dr_dhs_priv_ is already set (from do_handshake_initiator).
-            SecureBuffer<32> dh;
-            if (crypto_scalarmult(dh.data(), dr_dhs_priv_.data(),
-                                  peer_dr_pub_.bytes.data()) != 0 ||
-                sodium_is_zero(dh.data(), 32)) {
-                return std::unexpected(Error::from(ErrorCode::CryptoError,
-                                                   "DR first send: DH failed"));
-            }
+            auto dh = Crypto::kx_agree(dr_dhs_priv_, peer_dr_pub_);
+            if (!dh) return std::unexpected(
+                Error::from(ErrorCode::CryptoError, "DR first send: DH failed"));
             auto res = kdf_rk(dr_rk_,
                 std::span<const std::byte>(
-                    reinterpret_cast<const std::byte*>(dh.data()), 32));
+                    reinterpret_cast<const std::byte*>(dh->secret.data()), 32));
             if (!res) return std::unexpected(res.error());
             dr_rk_        = std::move(res->first);
             dr_cks_       = std::move(res->second);

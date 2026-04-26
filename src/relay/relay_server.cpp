@@ -7,6 +7,7 @@
 
 #include <boost/asio.hpp>
 #include <array>
+#include <atomic>
 #include <condition_variable>
 #include <cstring>
 #include <map>
@@ -30,14 +31,30 @@ static constexpr uint8_t kStatusInitiator = 0x01;
 static constexpr uint8_t kStatusResponder = 0x02;
 static constexpr uint8_t kStatusError     = 0xFF;
 
-using RoomId = std::array<uint8_t, 32>;
+// Hard cap: refuse new connections beyond this to prevent resource exhaustion.
+static constexpr int kMaxConnections = 256;
+
+using RoomId      = std::array<uint8_t, 32>;
 using SharedSocket = std::shared_ptr<asio::ip::tcp::socket>;
+
+// ── Global connection counter ─────────────────────────────────────────────────
+
+static std::atomic<int> g_connection_count{0};
+
+struct ConnectionGuard {
+    ConnectionGuard()  { ++g_connection_count; }
+    ~ConnectionGuard() { --g_connection_count; }
+    ConnectionGuard(const ConnectionGuard&) = delete;
+    ConnectionGuard& operator=(const ConnectionGuard&) = delete;
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-static void send_status(asio::ip::tcp::socket& sock, uint8_t status) {
+// Returns true if the write succeeded.
+static bool send_status(asio::ip::tcp::socket& sock, uint8_t status) {
     boost::system::error_code ec;
     asio::write(sock, asio::buffer(&status, 1), ec);
+    return !ec;
 }
 
 static void send_error(asio::ip::tcp::socket& sock, const std::string& msg) {
@@ -55,8 +72,6 @@ static void send_error(asio::ip::tcp::socket& sock, const std::string& msg) {
 
 // ── Forwarding ────────────────────────────────────────────────────────────────
 
-// Read from `src` and write to `dst` until one side closes.
-// Sets `done` on any error so the other forwarder thread also exits.
 static void forward_loop(SharedSocket src, SharedSocket dst,
                          std::shared_ptr<std::atomic<bool>> done) {
     std::vector<uint8_t> buf(65536);
@@ -68,13 +83,11 @@ static void forward_loop(SharedSocket src, SharedSocket dst,
         if (ec) break;
     }
     done->store(true);
-    // Shut down both directions so the other forwarder unblocks.
     boost::system::error_code ec;
     src->shutdown(asio::ip::tcp::socket::shutdown_receive, ec);
     dst->shutdown(asio::ip::tcp::socket::shutdown_send, ec);
 }
 
-// Pipe `a` ↔ `b` using two threads; blocks until both sides close.
 static void pipe_sockets(SharedSocket a, SharedSocket b) {
     auto done = std::make_shared<std::atomic<bool>>(false);
     std::thread t([=]() { forward_loop(b, a, done); });
@@ -85,15 +98,17 @@ static void pipe_sockets(SharedSocket a, SharedSocket b) {
 // ── Room registry ─────────────────────────────────────────────────────────────
 
 struct WaitingRoom {
-    SharedSocket           host_socket;     // owned shared_ptr; host thread blocks below
-    std::mutex             mu;
+    SharedSocket            host_socket;
+    std::mutex              mu;
     std::condition_variable cv;
-    SharedSocket           guest_socket;    // set by the guest handler thread
-    bool                   guest_arrived{false};
-    bool                   cancelled{false}; // host disconnected before guest
+    SharedSocket            guest_socket;
+    bool                    guest_arrived{false};
+    // Set to true when the host socket closes before a guest arrives, so
+    // the cv.wait() in handle_host() unblocks instead of blocking forever.
+    bool                    cancelled{false};
 };
 
-static std::mutex                                  g_rooms_mu;
+static std::mutex                                     g_rooms_mu;
 static std::map<RoomId, std::shared_ptr<WaitingRoom>> g_rooms;
 
 // ── Host handler ──────────────────────────────────────────────────────────────
@@ -111,16 +126,38 @@ static void handle_host(SharedSocket host_sock, const RoomId& room) {
         g_rooms[room] = entry;
     }
 
-    // Acknowledge: tell host we are waiting for a guest.
-    send_status(*host_sock, kStatusWaiting);
+    // Tell host we are waiting for a guest; bail if the write fails.
+    if (!send_status(*host_sock, kStatusWaiting)) {
+        std::lock_guard lg(g_rooms_mu);
+        g_rooms.erase(room);
+        return;
+    }
 
-    // Block until a guest arrives or the host disconnects.
+    // Watchdog: detect host socket closure while waiting for a guest.
+    // A blocking peek-receive returns with an error when the remote end closes,
+    // which lets us cancel the cv.wait() below instead of waiting forever.
+    std::thread watchdog([entry_weak = std::weak_ptr<WaitingRoom>(entry),
+                          host_sock]() {
+        boost::system::error_code ec;
+        uint8_t probe{};
+        host_sock->receive(asio::buffer(&probe, 1),
+                           asio::ip::tcp::socket::message_peek, ec);
+        if (ec) {
+            if (auto e = entry_weak.lock()) {
+                std::lock_guard lk(e->mu);
+                e->cancelled = true;
+                e->cv.notify_one();
+            }
+        }
+    });
+
     {
         std::unique_lock lk(entry->mu);
         entry->cv.wait(lk, [&]{ return entry->guest_arrived || entry->cancelled; });
     }
 
-    // Always clean up the room registry.
+    if (watchdog.joinable()) watchdog.detach();
+
     {
         std::lock_guard lg(g_rooms_mu);
         g_rooms.erase(room);
@@ -129,18 +166,13 @@ static void handle_host(SharedSocket host_sock, const RoomId& room) {
     if (entry->cancelled || !entry->guest_socket) return;
 
     // Tell host it is the Cloak responder (Session::accept side).
-    boost::system::error_code ec;
-    send_status(*host_sock, kStatusResponder);
-    // Check that the write succeeded (host may have disconnected while waiting).
-    if (ec) return;
+    if (!send_status(*host_sock, kStatusResponder)) return;
 
     pipe_sockets(host_sock, entry->guest_socket);
 }
 
 // ── Guest handler ─────────────────────────────────────────────────────────────
 
-// Guest handler runs briefly: finds the room, hands off its socket, and returns.
-// The host thread takes over the guest socket and drives all I/O.
 static void handle_guest(SharedSocket guest_sock, const RoomId& room) {
     std::shared_ptr<WaitingRoom> entry;
     {
@@ -154,23 +186,21 @@ static void handle_guest(SharedSocket guest_sock, const RoomId& room) {
     }
 
     // Tell guest it is the Cloak initiator (Session::initiate side).
-    send_status(*guest_sock, kStatusInitiator);
+    if (!send_status(*guest_sock, kStatusInitiator)) return;
 
-    // Hand guest socket to the host entry and signal the waiting host thread.
-    // From this point forward the host thread owns all I/O on guest_sock.
     {
         std::lock_guard lk(entry->mu);
         entry->guest_socket  = std::move(guest_sock);
         entry->guest_arrived = true;
     }
     entry->cv.notify_one();
-    // This thread now exits; the host thread drives the forwarding.
 }
 
 // ── Client dispatcher ─────────────────────────────────────────────────────────
 
 static void handle_client(asio::ip::tcp::socket raw_sock) {
-    // Wrap in shared_ptr so it can be safely handed off between threads.
+    ConnectionGuard guard;
+
     auto sock = std::make_shared<asio::ip::tcp::socket>(std::move(raw_sock));
 
     boost::system::error_code ec;
@@ -214,11 +244,16 @@ Result<void> RelayServer::run() {
             acceptor.accept(sock, ec);
             if (ec) {
                 if (!running_) break;
-                continue; // transient accept error — keep listening
+                continue;
             }
+
+            // Refuse new connections when at capacity.
+            if (g_connection_count.load() >= kMaxConnections) {
+                send_error(sock, "server at capacity — try again later");
+                continue;
+            }
+
             sock.set_option(asio::ip::tcp::no_delay(true));
-            // Each client gets its own detached thread; max concurrency is
-            // bounded by OS limits and is sufficient for development use.
             std::thread(handle_client, std::move(sock)).detach();
         }
     } catch (const boost::system::system_error& e) {
