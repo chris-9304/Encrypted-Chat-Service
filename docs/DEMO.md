@@ -6,16 +6,26 @@ This guide shows how to run Cloak end-to-end: LAN chat, file transfer, group cha
 
 ## Prerequisites
 
-Build Cloak in debug mode:
+**Option A — Install from the release package (easiest)**
+
+Unzip `dist/cloak-0.4.0-win64.zip` and run `install.ps1`. After install, `cloak.exe` and `cloak-relay.exe` are on your PATH.
+
+```powershell
+.\install.ps1       # right-click → Run with PowerShell, or run in PowerShell
+```
+
+**Option B — Build from source**
 
 ```powershell
 cmake --preset debug
 cmake --build --preset debug
 ```
 
-Binaries are at:
-- `build/debug/cloak.exe` — main application
-- `build/debug/cloak-relay.exe` — relay server
+Built binaries are at:
+- `build/debug/src/app/cloak.exe` — main application
+- `build/debug/src/relay/cloak-relay.exe` — relay server
+
+The demos below use `cloak.exe` and `cloak-relay.exe` — if running from source, prefix with the full path above, or `cd` into the binary directory first.
 
 ---
 

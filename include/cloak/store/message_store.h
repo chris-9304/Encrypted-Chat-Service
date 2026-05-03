@@ -100,7 +100,8 @@ private:
 
     sqlite3*                     db_{nullptr};
     cloak::crypto::SecureBuffer<32> db_key_;
-    mutable std::mutex           mu_;
+    // unique_ptr so MessageStore is move-constructible (std::mutex is not movable).
+    mutable std::unique_ptr<std::mutex> mu_{std::make_unique<std::mutex>()};
 };
 
 } // namespace cloak::store

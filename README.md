@@ -29,6 +29,33 @@
 
 ---
 
+## Install (No Build Required)
+
+Download `cloak-0.4.0-win64.zip` from the `dist/` directory, unzip it, then run the installer:
+
+```powershell
+# Right-click install.ps1 → "Run with PowerShell"
+# — or open PowerShell in the unzipped folder and run:
+.\install.ps1
+```
+
+The script:
+1. Checks for and silently installs the **Visual C++ 2022 Runtime** if missing
+2. Copies `cloak.exe`, `cloak-relay.exe`, and all required DLLs to `%ProgramFiles%\Cloak\` (admin) or `%LOCALAPPDATA%\Cloak\` (per-user)
+3. Adds the install directory to your **PATH**
+4. Creates **Start Menu shortcuts** for Cloak and Cloak Relay Server
+5. Writes an `uninstall.ps1` for clean removal
+
+After install, open a **new** terminal and run:
+```powershell
+cloak.exe --name "Alice" --port 8080
+```
+
+> **What's in the zip?**
+> `cloak.exe` · `cloak-relay.exe` · `libsodium.dll` · `boost_program_options-vc143-mt-x64-1_90.dll` · `sqlite3.dll` · `vc_redist.x64.exe` · `install.ps1`
+
+---
+
 ## Quick Start
 
 ### LAN (same network)
@@ -74,7 +101,7 @@
 
 ---
 
-## Build
+## Build from Source
 
 **Requirements:** MSVC 2022 (v143), CMake ≥ 3.25, Ninja, vcpkg with `VCPKG_ROOT` set.
 
@@ -87,6 +114,16 @@ ctest --preset debug --output-on-failure               # test
 First build downloads all vcpkg dependencies (15–30 min). Subsequent builds are fast.
 
 **Presets:** `debug`, `release`, `asan` (AddressSanitizer), `analyze` (MSVC static analyzer).
+
+**Binary output locations:**
+- `build/release/src/app/cloak.exe`
+- `build/release/src/relay/cloak-relay.exe`
+
+**Build + package in one step** (creates `dist/cloak-0.4.0-win64.zip`):
+```powershell
+.\build-dist.ps1              # full build then package
+.\build-dist.ps1 -SkipBuild  # re-package existing binaries only
+```
 
 See [WINDOWS_BUILD.md](WINDOWS_BUILD.md) for the full setup guide.
 

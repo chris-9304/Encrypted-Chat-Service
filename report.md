@@ -14,7 +14,7 @@
 4. [Object-Oriented Design Principles](#4-object-oriented-design-principles)
 5. [Every Feature Explained](#5-every-feature-explained)
 6. [Protocols and Standards](#6-protocols-and-standards)
-7. [Tools and Libraries](#7-tools-and-libraries)
+7. [Tools and Libraries](#7-tools-and-libraries) — 7.1 libsodium · 7.2 Boost.Asio · 7.3 SQLite3 · 7.4 FTXUI · 7.5 spdlog · 7.6 Catch2 · 7.7 CMake+Ninja+vcpkg · 7.8 Distribution ZIP · 7.9 WiX MSI · 7.10 MSVC 2022
 8. [Security Design](#8-security-design)
 9. [Architecture Walkthrough](#9-architecture-walkthrough)
 10. [Project Phases](#10-project-phases)
@@ -713,17 +713,37 @@ A modern C++ unit testing framework (v3+). All module unit tests use Catch2. Fea
 
 The custom `cloak_add_library.cmake` macro auto-discovers unit tests under `tests/unit/<module>/` and wires them into CTest.
 
-### 7.8 WiX Toolset (MSI Installer)
+**`build-dist.ps1`** — a PowerShell script in the project root that automates the full build-to-distribution workflow: it initialises the MSVC environment via `vcvars64.bat`, runs `cmake --preset release`, runs `cmake --build --preset release`, collects the two executables and three runtime DLLs, updates `dist/cloak/`, and produces `dist/cloak-0.4.0-win64.zip`.
 
-WiX Toolset v4 produces a Windows Installer (`.msi`) package. The installer:
-- Installs `cloak.exe` and `cloak-relay.exe` to `%ProgramFiles%\Cloak\`
-- Creates a Start menu shortcut
-- Registers the application for clean uninstall
-- Per-user data (`%APPDATA%\Cloak\`) is preserved on uninstall unless full removal is selected
+### 7.8 Distribution Package (`install.ps1` + ZIP)
 
-### 7.9 MSVC 2022 Toolchain
+The primary distribution mechanism is a self-contained ZIP archive (`dist/cloak-0.4.0-win64.zip`) that requires no build tools on the end-user's machine. Contents:
 
-The Microsoft Visual C++ compiler (v143 toolset) with:
+| File | Purpose |
+|------|---------|
+| `cloak.exe` | Main application (442 KB, built with MSVC v143) |
+| `cloak-relay.exe` | Relay server (152 KB, optional) |
+| `libsodium.dll` | Cryptographic primitives |
+| `boost_program_options-vc143-mt-x64-1_90.dll` | CLI argument parsing |
+| `sqlite3.dll` | Embedded database engine |
+| `vc_redist.x64.exe` | Visual C++ 2022 Runtime (25 MB, installed silently if missing) |
+| `install.ps1` | PowerShell installer |
+
+`install.ps1` is a single-file installer that:
+1. Detects elevation (Admin vs. per-user)
+2. Checks the registry for the VC++ 2022 Runtime and installs it silently if missing
+3. Copies all files to `%ProgramFiles%\Cloak\` (Admin) or `%LOCALAPPDATA%\Cloak\` (per-user)
+4. Adds the install directory to the system or user PATH
+5. Creates Start Menu shortcuts for Cloak and Cloak Relay Server
+6. Writes `uninstall.ps1` inside the install directory for clean removal
+
+### 7.9 WiX Toolset (MSI Installer — planned)
+
+WiX Toolset v4 will produce a signed MSI installer for formal distribution. The WiX project is scaffolded in `installer/`. In the current release, the `install.ps1` ZIP approach is the primary distribution method. The WiX MSI is planned for the v1.0 production release.
+
+### 7.10 MSVC 2022 Toolchain
+
+The Microsoft Visual C++ compiler (v143 toolset). Key flags enforced on every translation unit:
 - `/std:c++latest` — C++23 mode
 - `/W4 /WX` — all warnings, warnings as errors
 - `/permissive-` — strict standards conformance
@@ -1012,18 +1032,48 @@ These verify that Cloak's crypto calls (through libsodium) produce the exact out
 
 ## 12. How to Build and Run
 
-### Prerequisites
+### Option A — Install from the release package (no build tools required)
+
+This is the recommended path for end users.
+
+1. Download `cloak-0.4.0-win64.zip` from the `dist/` directory (or a release page).
+2. Unzip it anywhere.
+3. Right-click `install.ps1` and choose **Run with PowerShell**, or open PowerShell in that folder and run:
+   ```powershell
+   .\install.ps1
+   ```
+4. Follow the on-screen prompts (choose Y to proceed, Admin or per-user).
+5. Open a **new** terminal — PATH is now updated — and run:
+   ```powershell
+   cloak.exe --name "Alice" --port 8080
+   ```
+
+The installer handles the VC++ 2022 Runtime automatically. No other dependencies are needed on the end-user's machine.
+
+To uninstall:
+```powershell
+# Find the install directory (printed at end of install) and run:
+%ProgramFiles%\Cloak\uninstall.ps1
+# or for per-user:
+%LOCALAPPDATA%\Cloak\uninstall.ps1
+```
+
+---
+
+### Option B — Build from source
+
+#### Prerequisites
 
 | Tool | Version | Notes |
 |------|---------|-------|
 | Windows | 10 or 11 (x64) | |
-| Visual Studio 2022 | v143 toolset | Community edition is free |
-| CMake | ≥ 3.25 | |
+| Visual Studio 2022 | v143 toolset | Community or Build Tools edition |
+| CMake | ≥ 3.25 | Bundled with VS 2022 |
 | Ninja | Any | Bundled with VS 2022 |
 | vcpkg | Any | Set `VCPKG_ROOT` environment variable |
 | Git | Any | |
 
-### First-Time Setup
+#### First-Time Setup
 
 ```powershell
 # Clone vcpkg (if not already done)
@@ -1036,7 +1086,7 @@ git clone https://github.com/<your-org>/cloak.git
 cd cloak
 ```
 
-### Build
+#### Build
 
 ```powershell
 # Configure (first time: downloads and builds all dependencies, 15-30 min)
@@ -1049,7 +1099,7 @@ cmake --build --preset debug
 ctest --preset debug --output-on-failure
 ```
 
-### Build Variants
+#### Build Variants
 
 | Preset | Purpose |
 |--------|---------|
@@ -1058,24 +1108,42 @@ ctest --preset debug --output-on-failure
 | `asan` | Bug hunting: AddressSanitizer enabled |
 | `analyze` | Code quality: MSVC static analyzer |
 
-### Running Cloak
+#### Release binary locations
+
+After `cmake --build --preset release`:
 
 ```
-# Start Cloak (LAN mode)
-.\build\debug\cloak.exe --name "Alice" --port 5000
-
-# Start with a relay (internet mode)
-.\build\debug\cloak.exe --name "Alice" --port 5000 --relay relay.example.com:8765
+build/release/src/app/cloak.exe
+build/release/src/relay/cloak-relay.exe
 ```
 
-### Running the Relay Server
+Runtime DLLs are placed next to each executable automatically by CMake:
+`libsodium.dll`, `boost_program_options-vc143-mt-x64-1_90.dll`, `sqlite3.dll`
 
+#### Packaging the ZIP
+
+```powershell
+.\build-dist.ps1              # full build + create dist/cloak-0.4.0-win64.zip
+.\build-dist.ps1 -SkipBuild  # re-package existing release binaries
 ```
-# Start the relay
-.\build\debug\cloak-relay.exe --port 8765
 
-# Or on port 443 for networks that block non-standard ports
-.\build\debug\cloak-relay.exe --port 443
+#### Running Cloak (from source build)
+
+```powershell
+# LAN mode
+.\build\debug\src\app\cloak.exe --name "Alice" --port 5000
+
+# Internet mode (with relay)
+.\build\debug\src\app\cloak.exe --name "Alice" --port 5000 --relay relay.example.com:8765
+```
+
+#### Running the Relay Server
+
+```powershell
+.\build\debug\src\relay\cloak-relay.exe --port 8765
+
+# Port 443 for networks that block non-standard ports
+.\build\debug\src\relay\cloak-relay.exe --port 443
 ```
 
 ### Key Commands (Inside Cloak)
@@ -1098,13 +1166,15 @@ ctest --preset debug --output-on-failure
 | `/devices` | List linked devices |
 | `/link-device <pub_hex>` | Link a secondary device |
 
-### MSI Installer
+### WiX MSI Installer (planned for v1.0)
 
 ```powershell
 cmake --preset release
 cmake --build --preset release --target installer
 # Output: build/release/installer/cloak-0.4.0.msi
 ```
+
+The WiX MSI project is scaffolded in `installer/`. Code-signing with a CA-issued Authenticode certificate is required before formal distribution.
 
 ---
 

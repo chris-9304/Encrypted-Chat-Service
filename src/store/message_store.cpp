@@ -217,7 +217,7 @@ Result<void> MessageStore::save_message(const cloak::wire::Message& message) {
     auto body_ct = encrypt_column(message.body);
     if (!body_ct) return std::unexpected(body_ct.error());
 
-    std::lock_guard lock(mu_);
+    std::lock_guard lock(*mu_);
 
     Stmt st;
     int rc = sqlite3_prepare_v2(db_,
@@ -269,7 +269,7 @@ cloak::wire::Message read_message_row(sqlite3_stmt* st,
 Result<std::vector<cloak::wire::Message>> MessageStore::get_messages_for_peer(
     const PeerId& peer, const Timestamp& since) const {
 
-    std::lock_guard lock(mu_);
+    std::lock_guard lock(*mu_);
 
     Stmt st;
     int rc = sqlite3_prepare_v2(db_,
@@ -297,7 +297,7 @@ Result<std::vector<cloak::wire::Message>> MessageStore::get_messages_for_peer(
 Result<std::vector<cloak::wire::Message>> MessageStore::get_conversation(
     const PeerId& my_id, const PeerId& peer_id, const Timestamp& since) const {
 
-    std::lock_guard lock(mu_);
+    std::lock_guard lock(*mu_);
 
     Stmt st;
     int rc = sqlite3_prepare_v2(db_,
@@ -329,7 +329,7 @@ Result<std::vector<cloak::wire::Message>> MessageStore::get_conversation(
 }
 
 Result<void> MessageStore::mark_delivered(const MessageId& id) {
-    std::lock_guard lock(mu_);
+    std::lock_guard lock(*mu_);
     Stmt st;
     sqlite3_prepare_v2(db_,
         "UPDATE messages SET is_delivered=1 WHERE id=?;", -1, &st.s, nullptr);
@@ -340,7 +340,7 @@ Result<void> MessageStore::mark_delivered(const MessageId& id) {
 }
 
 Result<void> MessageStore::mark_read(const MessageId& id) {
-    std::lock_guard lock(mu_);
+    std::lock_guard lock(*mu_);
     Stmt st;
     sqlite3_prepare_v2(db_,
         "UPDATE messages SET is_read=1 WHERE id=?;", -1, &st.s, nullptr);
@@ -355,7 +355,7 @@ Result<uint64_t> MessageStore::purge_expired() {
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
 
-    std::lock_guard lock(mu_);
+    std::lock_guard lock(*mu_);
     Stmt st;
     sqlite3_prepare_v2(db_,
         "DELETE FROM messages WHERE expires_at > 0 AND expires_at <= ?;",
@@ -374,7 +374,7 @@ Result<void> MessageStore::save_peers(
     auto all_res = dir.all();
     if (!all_res) return std::unexpected(all_res.error());
 
-    std::lock_guard lock(mu_);
+    std::lock_guard lock(*mu_);
 
     for (const auto& r : *all_res) {
         Stmt st;
@@ -402,7 +402,7 @@ Result<void> MessageStore::save_peers(
 Result<void> MessageStore::load_peers(
     cloak::identity::PeerDirectory& dir) const {
 
-    std::lock_guard lock(mu_);
+    std::lock_guard lock(*mu_);
     Stmt st;
     sqlite3_prepare_v2(db_,
         "SELECT fingerprint, sign_pk, kx_pk, endpoint, display_name, trust"
@@ -445,7 +445,7 @@ Result<void> MessageStore::save_group(const GroupSessionRecord& rec) {
             reinterpret_cast<const std::byte*>(rec.own_chain_key.data()), 32));
     if (!ck_ct) return std::unexpected(ck_ct.error());
 
-    std::lock_guard lock(mu_);
+    std::lock_guard lock(*mu_);
 
     // Upsert session row.
     {
@@ -497,7 +497,7 @@ Result<void> MessageStore::save_group(const GroupSessionRecord& rec) {
 }
 
 Result<std::vector<GroupSessionRecord>> MessageStore::load_groups() const {
-    std::lock_guard lock(mu_);
+    std::lock_guard lock(*mu_);
 
     Stmt st;
     sqlite3_prepare_v2(db_,
@@ -567,7 +567,7 @@ Result<std::vector<GroupSessionRecord>> MessageStore::load_groups() const {
 }
 
 Result<void> MessageStore::delete_group(const cloak::core::GroupId& gid) {
-    std::lock_guard lock(mu_);
+    std::lock_guard lock(*mu_);
     // Members are deleted via CASCADE.
     Stmt st;
     sqlite3_prepare_v2(db_,

@@ -33,11 +33,23 @@ test(session): add out-of-order DR message test
 ## Running tests
 
 ```powershell
-ctest --preset debug --output-on-failure          # all tests
-ctest --preset debug -R test_wire --output-on-failure  # single module
+ctest --preset debug --output-on-failure                       # all tests
+ctest --preset debug -R test_wire --output-on-failure          # single module
 cmake --preset asan && cmake --build --preset asan
-ctest --preset asan --output-on-failure           # with AddressSanitizer
+ctest --preset asan --output-on-failure                        # with AddressSanitizer
 ```
+
+## Packaging a release
+
+```powershell
+.\build-dist.ps1              # build release + produce dist/cloak-0.4.0-win64.zip
+.\build-dist.ps1 -SkipBuild  # re-package without rebuilding
+```
+
+After running, verify `dist/cloak-0.4.0-win64.zip` contains exactly 7 files:
+`cloak.exe`, `cloak-relay.exe`, `libsodium.dll`, `boost_program_options-vc143-mt-x64-1_90.dll`, `sqlite3.dll`, `vc_redist.x64.exe`, `install.ps1`.
+
+Do **not** commit build artifacts (`build/`, `*.exe`, `*.dll`) — only commit `dist/cloak/install.ps1` and regenerate the zip via `build-dist.ps1`.
 
 ## Security reports
 

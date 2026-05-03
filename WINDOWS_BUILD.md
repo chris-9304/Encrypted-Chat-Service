@@ -26,7 +26,7 @@ setx VCPKG_ROOT "C:\vcpkg"
 
 Close and reopen PowerShell so `VCPKG_ROOT` is picked up.
 
-**3. Install the WiX Toolset v4** (needed for the installer; not needed for core development).
+**3. Install the WiX Toolset v4** (needed for the MSI installer target; not needed for development).
 
 ```powershell
 dotnet tool install --global wix
@@ -36,39 +36,103 @@ dotnet tool install --global wix
 
 Git for Windows is fine. Windows Terminal + PowerShell 7 is recommended.
 
-**5. Optional: Gemini Antigravity or Claude Code** set up according to each tool's Windows installation instructions.
-
 ## Clone and build
 
 ```powershell
-git clone <repo-url> cloak-chat
-cd cloak-chat
+git clone <repo-url> cloak
+cd cloak
 
 cmake --preset debug
 cmake --build --preset debug
 ctest --preset debug --output-on-failure
 ```
 
-On first build, vcpkg downloads and builds all dependencies. This takes 15–30 minutes depending on machine. Subsequent builds reuse the vcpkg binary cache.
+On first build, vcpkg downloads and builds all dependencies. This takes 15-30 minutes. Subsequent builds reuse the vcpkg binary cache.
 
 ## Build presets
 
-- `debug` — MSVC Debug, no optimization, full symbols.
-- `release` — MSVC Release with `/O2 /DNDEBUG`.
-- `asan` — Debug + AddressSanitizer (`/fsanitize=address`). Used in CI.
-- `analyze` — Runs MSVC's `/analyze` static analyzer. Used in CI.
+| Preset | Description |
+|--------|-------------|
+| `debug` | MSVC Debug, no optimization, full symbols |
+| `release` | MSVC Release with `/O2 /DNDEBUG` |
+| `asan` | Debug + AddressSanitizer (`/fsanitize=address`). Used in CI. |
+| `analyze` | Runs MSVC `/analyze` static analyzer. Used in CI. |
 
-## Common problems
+## Build output locations
 
-**"VCPKG_ROOT not set"** — Close and reopen your shell after `setx`. `setx` doesn't affect the current session.
+After `cmake --build --preset release`:
 
-**vcpkg dependency build fails** — Usually a missing Windows SDK component or outdated vcpkg. Run `git pull` in `C:\vcpkg` and `C:\vcpkg\bootstrap-vcpkg.bat` to update.
+| Binary | Path |
+|--------|------|
+| `cloak.exe` | `build/release/src/app/cloak.exe` |
+| `cloak-relay.exe` | `build/release/src/relay/cloak-relay.exe` |
 
-**"cannot open source file <ev/...>.h"** — You're likely using the wrong CMake preset or building without the configured preset. `cmake --preset debug` regenerates.
+Runtime DLLs are copied by CMake (via vcpkg) next to each executable automatically:
+- `libsodium.dll`
+- `boost_program_options-vc143-mt-x64-1_90.dll`
+- `sqlite3.dll`
 
-**Antivirus false positive on the built .exe** — Common for crypto/networking binaries on Windows until the installer is properly code-signed. Add a project-folder exclusion in Windows Security during development; do not ship unsigned binaries.
+## Packaging the release zip
 
-## Running the installer build
+`build-dist.ps1` in the project root automates the full build-to-zip workflow:
+
+```powershell
+# Full build + create dist/cloak-0.4.0-win64.zip
+.\build-dist.ps1
+
+# Re-package without rebuilding (use existing binaries in build/release/)
+.\build-dist.ps1 -SkipBuild
+
+# Override vcpkg root if VCPKG_ROOT is not set
+.\build-dist.ps1 -VcpkgRoot D:\vcpkg
+```
+
+This script:
+1. Calls `vcvars64.bat` to initialise the MSVC environment
+2. Runs `cmake --preset release` (clears stale cache first)
+3. Runs `cmake --build --preset release`
+4. Copies `cloak.exe`, `cloak-relay.exe`, and the three runtime DLLs into `dist/cloak/`
+5. Produces `dist/cloak-0.4.0-win64.zip` ready for distribution
+
+The `dist/cloak/` directory always reflects the most recent packaging run.
+
+## Release package contents
+
+`dist/cloak-0.4.0-win64.zip` (approximately 25 MB) contains:
+
+| File | Purpose |
+|------|---------|
+| `cloak.exe` | Main application |
+| `cloak-relay.exe` | Standalone relay server (optional) |
+| `libsodium.dll` | Cryptographic primitives (libsodium) |
+| `boost_program_options-vc143-mt-x64-1_90.dll` | CLI argument parsing |
+| `sqlite3.dll` | Embedded database engine |
+| `vc_redist.x64.exe` | Visual C++ 2022 Runtime installer |
+| `install.ps1` | Plug-and-play installer script |
+
+## End-user install (from zip, no build tools needed)
+
+```powershell
+# 1. Unzip cloak-0.4.0-win64.zip anywhere, then:
+.\install.ps1
+
+# 2. Open a NEW terminal and run:
+cloak.exe --name "Alice" --port 8080
+```
+
+What `install.ps1` does:
+
+| Step | Action |
+|------|--------|
+| 1 | Checks registry for VC++ 2022 Runtime; installs `vc_redist.x64.exe` silently if missing |
+| 2 | Copies all files to `%ProgramFiles%\Cloak\` (admin) or `%LOCALAPPDATA%\Cloak\` (per-user) |
+| 3 | Adds install directory to the system or user PATH |
+| 4 | Creates Start Menu shortcuts: **Cloak** and **Cloak Relay Server** |
+| 5 | Writes `uninstall.ps1` inside the install directory for clean removal |
+
+Run as Administrator for a system-wide install; run normally for a per-user install.
+
+## Running the installer build (WiX MSI)
 
 ```powershell
 cmake --preset release
@@ -76,7 +140,19 @@ cmake --build --preset release
 cmake --build --preset release --target installer
 ```
 
-Outputs an MSI under `build/release/installer/`. In development builds this is self-signed (the installer will warn on install; that's expected).
+Outputs an MSI under `build/release/installer/`. In development builds this is self-signed.
+
+## Common problems
+
+**"VCPKG_ROOT not set"** — Close and reopen your shell after `setx`. It does not affect the current session.
+
+**vcpkg dependency build fails** — Run `git pull` in `C:\vcpkg` and `C:\vcpkg\bootstrap-vcpkg.bat` to update, then reconfigure.
+
+**cmake picks up MSYS2 GCC instead of MSVC** — CMake found a different compiler on PATH first. Run the build through a Visual Studio Developer Command Prompt, or use `build-dist.ps1` which calls `vcvars64.bat` automatically.
+
+**"CMakeCache.txt does not match the generator"** — Delete `build/<preset>/CMakeCache.txt` and `build/<preset>/CMakeFiles/`, then reconfigure.
+
+**Antivirus false positive on built .exe** — Common for crypto/networking binaries before code-signing. Add a project-folder exclusion in Windows Security during development.
 
 ## IDE integration
 
