@@ -66,6 +66,24 @@ Crypto facade, SecureBuffer, Wire framing v2, TCP transport, Loopback discovery,
 
 ---
 
+---
+
+## v1.0 Production Readiness — Planned
+
+The following items are outstanding before a v1.0 production release:
+
+- [ ] **External security audit** — independent review of the cryptographic protocol implementation
+- [ ] **Code-signing certificate** — replace development self-signed Authenticode cert with a CA-issued cert for the MSI installer
+- [ ] **Full mDNS implementation** — replace `LoopbackDiscoveryService` with `MdnsDiscoveryService` using the Win32 DNS-SD API for zero-config LAN discovery
+- [ ] **Passphrase change** — allow re-encrypting the identity file and DB key with a new passphrase without data loss
+- [ ] **Key rotation** — mechanism for users to generate a new long-term identity and migrate their peer relationships
+- [ ] **Group forward secrecy on member removal** — sender key rotation for remaining members when a peer is kicked or leaves
+- [ ] **Offline queue persistence** — persist queued messages across process restarts
+- [ ] **Public relay infrastructure** — hosted relay(s) for users who cannot self-host
+- [ ] **macOS / Linux port** (stretch goal) — port to non-Windows platforms using `std::filesystem` and platform-agnostic networking
+
+---
+
 ## Cross-phase principles
 
 - No phase begins until the previous phase's success criteria are met.

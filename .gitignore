@@ -25,3 +25,8 @@ Makefile
 # Large binary blobs — not part of source distribution
 *.zip
 *.7z
+
+# include/cloak/ is an NTFS junction → src/
+# .h files are tracked; .cpp and CMakeLists.txt are implementations in src/ only
+include/cloak/**/*.cpp
+include/cloak/**/CMakeLists.txt

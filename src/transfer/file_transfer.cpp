@@ -2,6 +2,7 @@
 #include <cloak/crypto/crypto.h>
 #include <cloak/wire/framing.h>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 
 namespace cloak::transfer {
@@ -216,8 +217,16 @@ Result<Path> receive_file(
         return std::unexpected(Error::from(ErrorCode::FramingError,
             "FileMetadata name truncated"));
     }
-    const std::string file_name(reinterpret_cast<const char*>(data + off), name_len);
+    const std::string file_name_raw(reinterpret_cast<const char*>(data + off), name_len);
     off += name_len;
+
+    // Sanitize: keep only the final filename component to prevent path traversal.
+    const std::string file_name =
+        std::filesystem::path(file_name_raw).filename().string();
+    if (file_name.empty()) {
+        return std::unexpected(Error::from(ErrorCode::FramingError,
+            "FileMetadata file_name is empty after sanitization"));
+    }
 
     // Receive chunks, decrypt, and write to temp file.
     const Path save_path = save_dir / file_name;

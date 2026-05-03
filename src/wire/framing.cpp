@@ -335,6 +335,12 @@ cloak::core::Result<FileChunkPayload> decode_file_chunk(
     c.total_chunks = read_u32_be(bytes, off); off += 4;
     c.is_last      = (static_cast<uint8_t>(bytes[off]) != 0); off += 1;
 
+    if (c.total_chunks > 0 && c.chunk_idx >= c.total_chunks) {
+        return std::unexpected(cloak::core::Error::from(
+            cloak::core::ErrorCode::FramingError,
+            "FileChunk chunk_idx out of range"));
+    }
+
     const uint32_t data_len = read_u32_be(bytes, off); off += 4;
     if (bytes.size() < off + data_len) {
         return std::unexpected(cloak::core::Error::from(
@@ -371,8 +377,15 @@ cloak::core::Result<ReceiptPayload> decode_receipt(
             "Receipt payload too short"));
     }
 
+    const auto type_byte = static_cast<uint8_t>(bytes[0]);
+    if (type_byte != 0x01 && type_byte != 0x02) {
+        return std::unexpected(cloak::core::Error::from(
+            cloak::core::ErrorCode::FramingError,
+            "Unknown receipt type: " + std::to_string(type_byte)));
+    }
+
     ReceiptPayload r;
-    r.receipt_type = static_cast<ReceiptType>(bytes[0]);
+    r.receipt_type = static_cast<ReceiptType>(type_byte);
     std::memcpy(r.message_id.bytes.data(), bytes.data() + 1, 16);
     return r;
 }
