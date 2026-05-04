@@ -669,35 +669,80 @@ cloak::core::Result<void> ChatApplication::send_text_to_current(const std::strin
 }
 
 cloak::core::Result<std::string> ChatApplication::make_invite_code() {
-    if (!relay_endpoint_)
-        return std::unexpected(Error::from(ErrorCode::TransportError,
-            "No relay configured"));
-
-    cloak::transport::RelayRoomId room_id{};
-    {
-        std::array<std::byte, 32 + 16> seed{};
-        std::memcpy(seed.data(), identity_->signing_public().bytes.data(), 32);
-        static_cast<void>(cloak::crypto::Crypto::random_bytes(
-            std::span<std::byte>(seed.data() + 32, 16)));
-        auto hash = cloak::crypto::Crypto::blake2b_256(
-            std::span<const std::byte>(seed));
-        if (!hash)
-            return std::unexpected(Error::from(ErrorCode::CryptoError,
-                "Failed to generate room ID"));
-        std::memcpy(room_id.data(), hash->data(), 32);
+    // ── Relay flow (when --relay is configured) ────────────────────────────
+    if (relay_endpoint_) {
+        cloak::transport::RelayRoomId room_id{};
+        {
+            std::array<std::byte, 32 + 16> seed{};
+            std::memcpy(seed.data(), identity_->signing_public().bytes.data(), 32);
+            static_cast<void>(cloak::crypto::Crypto::random_bytes(
+                std::span<std::byte>(seed.data() + 32, 16)));
+            auto hash = cloak::crypto::Crypto::blake2b_256(
+                std::span<const std::byte>(seed));
+            if (!hash)
+                return std::unexpected(Error::from(ErrorCode::CryptoError,
+                    "Failed to generate room ID"));
+            std::memcpy(room_id.data(), hash->data(), 32);
+        }
+        const std::string code =
+            cloak::transport::make_invite_code(*relay_endpoint_, room_id);
+        const cloak::core::Endpoint relay_ep = *relay_endpoint_;
+        std::thread([this, relay_ep, room_id]() {
+            auto t_res = cloak::transport::RelayTransport::host(relay_ep, room_id);
+            if (!t_res) { fire_system("[Invite] Relay host failed."); return; }
+            auto s_res = cloak::session::Session::accept(
+                *identity_, my_name_, std::move(*t_res));
+            if (!s_res) { fire_system("[Invite] Handshake failed."); return; }
+            const auto peer_name = s_res->peer_display_name();
+            const auto peer_fp   = s_res->peer_fingerprint();
+            const auto& peer_pub = s_res->peer_signing_key();
+            {
+                cloak::identity::PeerRecord pr;
+                pr.signing_public_key = peer_pub;
+                pr.display_name       = peer_name;
+                pr.fingerprint        = peer_fp;
+                static_cast<void>(peer_dir_.upsert(pr));
+            }
+            add_session(std::make_unique<cloak::session::Session>(std::move(*s_res)));
+            fire_system("[Invite] Connected to " + peer_name);
+            fire_peer_change();
+        }).detach();
+        return code;
     }
 
-    const std::string code =
-        cloak::transport::make_invite_code(*relay_endpoint_, room_id);
+    // ── Direct LAN flow (no relay needed) ─────────────────────────────────
+    // 1. Bind a one-shot listener on a random free port.
+    auto listener_res = cloak::transport::TcpListener::bind(0);
+    if (!listener_res)
+        return std::unexpected(listener_res.error());
 
-    // Launch background host thread; peer arrival fires peer-change callback.
-    const cloak::core::Endpoint relay_ep = *relay_endpoint_;
-    std::thread([this, relay_ep, room_id]() {
-        auto t_res = cloak::transport::RelayTransport::host(relay_ep, room_id);
-        if (!t_res) { fire_system("[Invite] Relay host failed."); return; }
+    auto listener    = std::make_shared<cloak::transport::TcpListener>(
+                           std::move(*listener_res));
+    const uint16_t lan_port = listener->local_port();
+
+    // 2. Determine outbound LAN IP using a routing probe (no data sent).
+    std::string lan_ip = "127.0.0.1";
+    try {
+        boost::asio::io_context io;
+        boost::asio::ip::udp::socket sock(io, boost::asio::ip::udp::v4());
+        boost::system::error_code ec;
+        sock.connect(boost::asio::ip::udp::endpoint(
+            boost::asio::ip::make_address("8.8.8.8", ec), 53));
+        if (!ec) lan_ip = sock.local_endpoint().address().to_string();
+    } catch (...) {}
+
+    // 3. Build code: "direct:IP:PORT".
+    const std::string code = "direct:" + lan_ip + ":" + std::to_string(lan_port);
+
+    // 4. Background thread: accept exactly one connection, then do Cloak handshake.
+    std::thread([this, listener]() mutable {
+        auto t_res = listener->accept_one();
+        if (!t_res) { fire_system("[Invite] Listen failed: " + t_res.error().message); return; }
+
         auto s_res = cloak::session::Session::accept(
             *identity_, my_name_, std::move(*t_res));
-        if (!s_res) { fire_system("[Invite] Handshake failed."); return; }
+        if (!s_res) { fire_system("[Invite] Handshake failed: " + s_res.error().message); return; }
+
         const auto peer_name = s_res->peer_display_name();
         const auto peer_fp   = s_res->peer_fingerprint();
         const auto& peer_pub = s_res->peer_signing_key();
@@ -709,7 +754,7 @@ cloak::core::Result<std::string> ChatApplication::make_invite_code() {
             static_cast<void>(peer_dir_.upsert(pr));
         }
         add_session(std::make_unique<cloak::session::Session>(std::move(*s_res)));
-        fire_system("[Invite] Connected to " + peer_name);
+        fire_system("Connected to " + peer_name + " via invite!");
         fire_peer_change();
     }).detach();
 
@@ -717,11 +762,46 @@ cloak::core::Result<std::string> ChatApplication::make_invite_code() {
 }
 
 cloak::core::Result<void> ChatApplication::connect_invite(const std::string& code) {
+    // ── Direct LAN invite code: "direct:IP:PORT" ───────────────────────────
+    if (code.size() > 7 && code.substr(0, 7) == "direct:") {
+        const std::string addr_part = code.substr(7); // "IP:PORT"
+        const auto colon = addr_part.rfind(':');
+        if (colon == std::string::npos)
+            return std::unexpected(Error::from(ErrorCode::FramingError,
+                "Invalid direct invite code — expected direct:IP:PORT"));
+        const std::string host = addr_part.substr(0, colon);
+        uint16_t port = 0;
+        try { port = static_cast<uint16_t>(std::stoi(addr_part.substr(colon + 1))); }
+        catch (...) {
+            return std::unexpected(Error::from(ErrorCode::FramingError,
+                "Invalid port in direct invite code"));
+        }
+        auto t_res = TcpTransport::connect({host, port});
+        if (!t_res) return std::unexpected(t_res.error());
+        auto s_res = Session::initiate(*identity_, my_name_, std::move(*t_res));
+        if (!s_res) return std::unexpected(s_res.error());
+        const auto peer_name = s_res->peer_display_name();
+        const auto peer_fp   = s_res->peer_fingerprint();
+        const auto& peer_pub = s_res->peer_signing_key();
+        {
+            cloak::identity::PeerRecord pr;
+            pr.signing_public_key = peer_pub;
+            pr.display_name       = peer_name;
+            pr.fingerprint        = peer_fp;
+            static_cast<void>(peer_dir_.upsert(pr));
+        }
+        add_session(std::make_unique<Session>(std::move(*s_res)));
+        fire_system("Connected to " + peer_name + " via invite!");
+        fire_peer_change();
+        return {};
+    }
+
+    // ── Relay invite code: "host:port/roomhex" ─────────────────────────────
     cloak::core::Endpoint relay_ep;
     cloak::transport::RelayRoomId room_id{};
     if (!cloak::transport::parse_invite_code(code, relay_ep, room_id))
         return std::unexpected(Error::from(ErrorCode::FramingError,
-            "Invalid invite code format"));
+            "Invalid invite code — expected direct:IP:PORT or relay:host:port/roomhex"));
 
     auto t_res = cloak::transport::RelayTransport::join(relay_ep, room_id);
     if (!t_res) return std::unexpected(t_res.error());

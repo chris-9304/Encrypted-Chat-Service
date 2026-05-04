@@ -28,6 +28,36 @@ private:
     std::unique_ptr<boost::asio::io_context> io_context_;
     boost::asio::ip::tcp::socket             socket_;
     bool                                     is_open_{true};
+
+    friend class TcpListener; // TcpListener::accept_one() calls the private ctor.
+};
+
+// One-shot TCP listener.  Binds immediately (port 0 → OS picks a free port),
+// exposes the bound port, then blocks on accept_one() for a single connection.
+// Designed for relay-free LAN invite codes.
+class TcpListener {
+public:
+    // Bind on `preferred_port` (0 = let OS pick).  Returns error on bind failure.
+    static cloak::core::Result<TcpListener> bind(uint16_t preferred_port = 0);
+
+    // Port the OS assigned (valid immediately after bind()).
+    uint16_t local_port() const;
+
+    // Block until one inbound connection arrives.  Can only be called once.
+    cloak::core::Result<std::unique_ptr<Transport>> accept_one();
+
+    // Non-copyable, movable.
+    TcpListener(TcpListener&&)            = default;
+    TcpListener& operator=(TcpListener&&) = default;
+    TcpListener(const TcpListener&)       = delete;
+    TcpListener& operator=(const TcpListener&) = delete;
+
+private:
+    TcpListener(std::unique_ptr<boost::asio::io_context> io,
+                boost::asio::ip::tcp::acceptor           acceptor);
+
+    std::unique_ptr<boost::asio::io_context> io_;
+    boost::asio::ip::tcp::acceptor           acceptor_;
 };
 
 } // namespace cloak::transport

@@ -112,4 +112,45 @@ cloak::core::Result<void> TcpTransport::close() {
 
 bool TcpTransport::is_open() const { return is_open_; }
 
+// ── TcpListener ───────────────────────────────────────────────────────────────
+
+TcpListener::TcpListener(std::unique_ptr<boost::asio::io_context> io,
+                         boost::asio::ip::tcp::acceptor           acceptor)
+    : io_(std::move(io)), acceptor_(std::move(acceptor)) {}
+
+cloak::core::Result<TcpListener> TcpListener::bind(uint16_t preferred_port) {
+    try {
+        auto io = std::make_unique<boost::asio::io_context>();
+        boost::asio::ip::tcp::acceptor acceptor(
+            *io,
+            boost::asio::ip::tcp::endpoint(
+                boost::asio::ip::tcp::v4(), preferred_port));
+        acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+        return TcpListener(std::move(io), std::move(acceptor));
+    } catch (const boost::system::system_error& e) {
+        return std::unexpected(cloak::core::Error::from(
+            cloak::core::ErrorCode::TransportError,
+            std::string("TcpListener bind failed: ") + e.what()));
+    }
+}
+
+uint16_t TcpListener::local_port() const {
+    return acceptor_.local_endpoint().port();
+}
+
+cloak::core::Result<std::unique_ptr<Transport>> TcpListener::accept_one() {
+    try {
+        boost::asio::ip::tcp::socket socket(*io_);
+        acceptor_.accept(socket);
+        acceptor_.close();
+        socket.set_option(boost::asio::ip::tcp::no_delay(true));
+        return std::unique_ptr<Transport>(
+            new TcpTransport(std::move(io_), std::move(socket)));
+    } catch (const boost::system::system_error& e) {
+        return std::unexpected(cloak::core::Error::from(
+            cloak::core::ErrorCode::TransportError,
+            std::string("TcpListener accept failed: ") + e.what()));
+    }
+}
+
 } // namespace cloak::transport
