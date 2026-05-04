@@ -17,5 +17,9 @@ cloak_add_library(
 )
 
 add_executable(cloak main.cpp)
-target_link_libraries(cloak PRIVATE cloak::app_lib Boost::program_options)
+target_link_libraries(cloak PRIVATE
+    cloak::app_lib
+    cloak::ui
+    Boost::program_options
+)
 cloak_target_warnings(cloak)

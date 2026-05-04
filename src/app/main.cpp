@@ -1,4 +1,5 @@
 #include <cloak/app/chat_application.h>
+#include <cloak/ui/chat_ui.h>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -16,7 +17,7 @@ static std::unique_ptr<cloak::app::ChatApplication> g_app;
 
 BOOL WINAPI CtrlHandler(DWORD fdwCtrlType) {
     if (fdwCtrlType == CTRL_C_EVENT || fdwCtrlType == CTRL_CLOSE_EVENT) {
-        std::cout << "\n[System] Shutting down...\n";
+        if (g_app) g_app->shutdown();
         g_app.reset();
         ExitProcess(0);
     }
@@ -38,14 +39,7 @@ static void print_help(const po::options_description& desc) {
         << "  cloak.exe --name Alice\n"
         << "  cloak.exe --name Alice --port 5000\n"
         << "  cloak.exe --name Bob --connect 192.168.1.5:5000\n"
-        << "  cloak.exe --name Alice --relay relay.example.com:8765\n\n"
-        << "Commands (once connected):\n"
-        << "  /peers                list connected peers\n"
-        << "  /switch <name>        switch active peer\n"
-        << "  /send <file>          send a file\n"
-        << "  /make-invite          generate an invite code (relay mode)\n"
-        << "  /connect-invite <code> connect via invite code\n"
-        << "  /help                 show all commands\n\n";
+        << "  cloak.exe --name Alice --relay relay.example.com:8765\n\n";
 }
 
 int main(int argc, char** argv) {
@@ -61,10 +55,8 @@ int main(int argc, char** argv) {
                       "listen port (0 = auto)")
         ("connect",   po::value<std::string>()->default_value(""),
                       "host:port to connect to on startup")
-        ("discovery", po::value<std::string>()->default_value("loopback"),
-                      "discovery mode: loopback (default)")
         ("relay",     po::value<std::string>()->default_value(""),
-                      "relay server host:port (for /make-invite)");
+                      "relay server host:port (for invite codes)");
 
     po::variables_map vm;
     try {
@@ -85,8 +77,7 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // ── If no --name was given, prompt interactively ──────────────────────────
-    // This allows launching from Start Menu / double-click without arguments.
+    // ── Name (from arg or interactive prompt) ─────────────────────────────────
     std::string name;
     if (vm.count("name")) {
         name = vm["name"].as<std::string>();
@@ -108,7 +99,7 @@ int main(int argc, char** argv) {
     const auto connect = vm["connect"].as<std::string>();
     const auto relay   = vm["relay"].as<std::string>();
 
-    // Parse optional relay endpoint.
+    // ── Parse optional relay endpoint ─────────────────────────────────────────
     std::optional<cloak::core::Endpoint> relay_ep;
     if (!relay.empty()) {
         const auto colon = relay.rfind(':');
@@ -127,24 +118,31 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::cout << "  Starting as \"" << name << "\"";
-    if (port)    std::cout << "  |  port " << port;
-    if (relay_ep) std::cout << "  |  relay " << relay_ep->address << ":" << relay_ep->port;
-    std::cout << "\n\n";
-
-    std::cout << "  Type a message and press Enter to send.\n"
-              << "  Type /help to see all commands.\n"
-              << "  Press Ctrl+C to quit.\n\n";
-
+    // ── Create application and run identity setup + background threads ────────
+    // run() prompts for the passphrase on the console (before FTXUI opens),
+    // then starts listen / discovery / cleanup threads and returns.
     g_app = std::make_unique<cloak::app::ChatApplication>(
         name, port, connect, relay_ep);
 
-    auto result = g_app->run();
-    if (!result) {
-        std::cerr << "\n[Fatal] " << result.error().message << "\n";
+    auto setup_result = g_app->run();
+    if (!setup_result) {
+        std::cerr << "\n[Fatal] " << setup_result.error().message << "\n";
         std::cout << "\nPress Enter to exit...";
         std::cin.get();
         return 2;
+    }
+
+    // ── Launch FTXUI UI on the main thread ────────────────────────────────────
+    cloak::ui::ChatUi ui(*g_app);
+    auto ui_result = ui.run_main_loop();
+
+    // User closed the window — tear down the application.
+    g_app->shutdown();
+    g_app.reset();
+
+    if (!ui_result) {
+        std::cerr << "\n[UI Error] " << ui_result.error().message << "\n";
+        return 3;
     }
     return 0;
 }

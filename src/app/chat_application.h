@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <deque>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -51,7 +52,58 @@ public:
                     std::optional<cloak::core::Endpoint> relay_endpoint = std::nullopt);
     ~ChatApplication();
 
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    // Unlocks identity, opens DB, starts background threads, then returns.
+    // The caller (main) then runs the FTXUI loop on the main thread.
     cloak::core::Result<void> run();
+    void shutdown();  // Signal all threads to stop.
+
+    // ── Callback types (called from background threads) ────────────────────────
+    using MessageCallback    = std::function<void(std::string from, std::string text,
+                                                   bool is_mine)>;
+    using PeerChangeCallback = std::function<void()>;
+    using SystemCallback     = std::function<void(std::string msg)>;
+
+    void set_message_callback(MessageCallback cb);
+    void set_peer_change_callback(PeerChangeCallback cb);
+    void set_system_callback(SystemCallback cb);
+
+    // ── Peer snapshot ─────────────────────────────────────────────────────────
+    struct PeerInfo {
+        size_t      index;
+        std::string name;
+        std::string fingerprint;
+        bool        online;
+        size_t      queued_count;
+        bool        verified;
+    };
+    std::vector<PeerInfo> get_peers() const;
+    void                  switch_peer(size_t idx);
+    size_t                current_peer_idx() const;
+
+    // ── Message actions ───────────────────────────────────────────────────────
+    cloak::core::Result<void> send_text_to_current(const std::string& text);
+
+    // ── Invite / connect ──────────────────────────────────────────────────────
+    // Generates the invite code locally (fast) and launches the relay host in
+    // background.  Peer connection fires the peer-change callback.
+    cloak::core::Result<std::string> make_invite_code();
+    cloak::core::Result<void>        connect_invite(const std::string& code);
+    cloak::core::Result<void>        connect_to(const std::string& host, uint16_t port);
+
+    // ── Identity info ─────────────────────────────────────────────────────────
+    std::string my_name()        const;
+    std::string my_fingerprint() const;
+
+    // ── Message history ───────────────────────────────────────────────────────
+    struct MessageEntry {
+        std::string sender;
+        std::string text;
+        std::string time_str;
+        bool        is_mine;
+    };
+    // Returns in-memory messages accumulated during this session.
+    std::vector<MessageEntry> get_message_snapshot() const;
 
 private:
     // Background thread functions.
@@ -97,6 +149,21 @@ private:
     // Phase 4: relay / invite commands.
     void cmd_make_invite();
     void cmd_connect_invite(const std::string& code);
+
+    // ── Callbacks ─────────────────────────────────────────────────────────────
+    mutable std::mutex  cb_mutex_;
+    MessageCallback     msg_cb_;
+    PeerChangeCallback  peer_cb_;
+    SystemCallback      sys_cb_;
+
+    // Helpers that fire callbacks (take cb_mutex_ internally).
+    void fire_message(std::string from, std::string text, bool is_mine);
+    void fire_peer_change();
+    void fire_system(std::string msg);
+
+    // ── In-memory message log (appended by recv threads) ──────────────────────
+    mutable std::mutex          log_mutex_;
+    std::vector<MessageEntry>   message_log_;
 
     // ── State ─────────────────────────────────────────────────────────────────
     std::string my_name_;

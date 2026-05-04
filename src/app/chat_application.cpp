@@ -38,10 +38,6 @@ ChatApplication::ChatApplication(std::string name, uint16_t port,
 ChatApplication::~ChatApplication() {
     running_ = false;
 
-    // Signal all recv threads to stop before joining background threads.
-    // Without this, recv threads may block in recv_message() while cleanup_thread
-    // is being joined — which can deadlock if cleanup tries to join a recv thread
-    // that is itself waiting on running_ to change.
     {
         std::lock_guard lock(session_mutex_);
         for (auto& entry : sessions_)
@@ -55,6 +51,15 @@ ChatApplication::~ChatApplication() {
     std::lock_guard lock(session_mutex_);
     for (auto& entry : sessions_) {
         if (entry.recv_thread.joinable()) entry.recv_thread.join();
+    }
+
+    // Persist peers and groups on clean exit.
+    if (store_) {
+        static_cast<void>(store_->save_peers(peer_dir_));
+        for (const auto& [gid, gname] : group_mgr_.list_groups()) {
+            auto snap = group_mgr_.snapshot(gid);
+            if (snap) static_cast<void>(store_->save_group(*snap));
+        }
     }
 }
 
@@ -80,12 +85,9 @@ void ChatApplication::start_recv_thread(SessionEntry& entry) {
 void ChatApplication::queue_for_peer(const std::string& fingerprint,
                                       const std::string& peer_name,
                                       const std::string& text) {
-    // Caller already holds session_mutex_; we take queue_mutex_ here.
-    // Lock order: session_mutex_ → queue_mutex_ (never reversed elsewhere).
     std::lock_guard qlock(queue_mutex_);
     message_queue_[fingerprint].push_back({text});
-    std::cout << "[Queue] Message saved for " << peer_name
-              << " — will deliver when they reconnect.\n";
+    fire_system("[Queue] Message saved for " + peer_name + " — will deliver on reconnect.");
 }
 
 // ── Per-session receive thread ────────────────────────────────────────────────
@@ -128,8 +130,8 @@ void ChatApplication::session_recv_func_impl(
         if (!res) {
             dead_flag->store(true);
             const std::string name = session_ptr->peer_display_name();
-            std::lock_guard plock(print_mutex_);
-            std::cout << "\n[System] " << name << " disconnected.\n> " << std::flush;
+            fire_system(name + " disconnected.");
+            fire_peer_change();
             return;
         }
 
@@ -141,10 +143,7 @@ void ChatApplication::session_recv_func_impl(
         case cloak::wire::InnerType::Text: {
             const std::string text(
                 reinterpret_cast<const char*>(body.data()), body.size());
-            {
-                std::lock_guard plock(print_mutex_);
-                std::cout << "\n" << name << ": " << text << "\n> " << std::flush;
-            }
+            fire_message(name, text, false);
             if (store_) {
                 cloak::wire::Message msg;
                 static_cast<void>(Crypto::random_bytes(
@@ -193,17 +192,12 @@ void ChatApplication::session_recv_func_impl(
                     auto snap = group_mgr_.snapshot(op_res->group_id);
                     if (snap) static_cast<void>(store_->save_group(*snap));
                 }
-                std::lock_guard plock(print_mutex_);
                 if (accept_r)
-                    std::cout << "\n[Group] Joined group '"
-                              << op_res->group_name << "'\n> " << std::flush;
+                    fire_system("[Group] Joined group '" + op_res->group_name + "'");
             } else {
                 static_cast<void>(group_mgr_.apply_op(*op_res));
-                if (op_res->op == cloak::wire::GroupOpType::Leave) {
-                    std::lock_guard plock(print_mutex_);
-                    std::cout << "\n[Group] " << name << " left the group.\n> "
-                              << std::flush;
-                }
+                if (op_res->op == cloak::wire::GroupOpType::Leave)
+                    fire_system("[Group] " + name + " left the group.");
             }
             break;
         }
@@ -218,14 +212,11 @@ void ChatApplication::session_recv_func_impl(
             auto peer_rec = peer_dir_.find_by_signing_key(sender_pub);
             const std::string sender =
                 peer_rec ? peer_rec->display_name : "[group member]";
-            // Look up the group name by scanning the group list.
             std::string group_label = "group";
             for (const auto& [gid, gname] : group_mgr_.list_groups()) {
                 if (gid.bytes == gmp->group_id.bytes) { group_label = gname; break; }
             }
-            std::lock_guard plock(print_mutex_);
-            std::cout << "\n[" << group_label << "] "
-                      << sender << ": " << text << "\n> " << std::flush;
+            fire_message("[" + group_label + "] " + sender, text, false);
             break;
         }
 
@@ -253,12 +244,8 @@ void ChatApplication::session_recv_func_impl(
                 reinterpret_cast<const char*>(body.data()) + off, nlen);
 
             static_cast<void>(device_registry_.register_peer_device(cert));
-            {
-                std::lock_guard plock(print_mutex_);
-                std::cout << "\n[Devices] Registered device '"
-                          << cert.device_name << "' for " << name << "\n> "
-                          << std::flush;
-            }
+            fire_system("[Devices] Registered device '" + cert.device_name +
+                        "' for " + name);
             break;
         }
 
@@ -283,40 +270,27 @@ void ChatApplication::listen_thread_func() {
         }
 
         auto s_res = Session::accept(*identity_, my_name_, std::move(*t_res));
-        if (!s_res) {
-            std::lock_guard plock(print_mutex_);
-            std::cerr << "\n[System] Accept handshake failed: "
-                      << s_res.error().message << "\n> " << std::flush;
-            continue;
-        }
+        if (!s_res) continue;
 
-        const auto& peer_pub = s_res->peer_signing_key();
-        const auto  peer_fp  = s_res->peer_fingerprint();
+        const auto& peer_pub  = s_res->peer_signing_key();
+        const auto  peer_fp   = s_res->peer_fingerprint();
         const auto  peer_name = s_res->peer_display_name();
 
-        // If the connecting device presents a DeviceCert in its handshake payload,
-        // we will receive it as a DeviceLink inner message shortly after.  For now
-        // we record the peer so TOFU kicks in.
         {
             PeerRecord pr;
             pr.signing_public_key  = peer_pub;
-            pr.kx_public_key       = {};  // filled in via directory persistence
+            pr.kx_public_key       = {};
             pr.display_name        = peer_name;
             pr.fingerprint         = peer_fp;
             auto up = peer_dir_.upsert(pr);
-            if (!up && up.error().code == ErrorCode::IdentityChanged) {
-                std::lock_guard plock(print_mutex_);
-                std::cout << "\n[SECURITY] Key change detected for " << peer_name
-                          << "!  Safety number changed — verify before trusting!\n> "
-                          << std::flush;
-            }
+            if (!up && up.error().code == ErrorCode::IdentityChanged)
+                fire_system("[SECURITY] Key change detected for " + peer_name +
+                            "! Verify before trusting.");
         }
 
         add_session(std::make_unique<Session>(std::move(*s_res)));
-
-        std::lock_guard plock(print_mutex_);
-        std::cout << "\n[System] Accepted connection from " << peer_name
-                  << " (FP: " << peer_fp << ")\n> " << std::flush;
+        fire_system("Connected: " + peer_name);
+        fire_peer_change();
     }
 }
 
@@ -370,12 +344,10 @@ void ChatApplication::discovery_thread_func() {
             auto s_res = Session::initiate(*identity_, my_name_, std::move(*t_res));
             if (!s_res) continue;
 
-            const auto fp   = s_res->peer_fingerprint();
             const auto pname = s_res->peer_display_name();
             add_session(std::make_unique<Session>(std::move(*s_res)));
-            std::lock_guard plock(print_mutex_);
-            std::cout << "\n[Discovery] Auto-connected to " << pname
-                      << " (FP: " << fp << ")\n> " << std::flush;
+            fire_system("[Discovery] Auto-connected to " + pname);
+            fire_peer_change();
         }
     }
 }
@@ -574,25 +546,217 @@ Result<void> ChatApplication::run() {
         }
     }
 
-    print_help();
+    // Background threads are now running.  Control returns to main(), which
+    // launches the FTXUI loop.  Persistence happens in the destructor.
+    return {};
+}
 
-    std::string line;
-    while (running_) {
-        std::cout << "> " << std::flush;
-        if (!std::getline(std::cin, line)) break;
-        if (line.empty()) continue;
-        handle_command(line);
+// ── Public API for FTXUI UI ───────────────────────────────────────────────────
+
+void ChatApplication::shutdown() { running_ = false; }
+
+std::string ChatApplication::my_name()        const { return my_name_; }
+std::string ChatApplication::my_fingerprint() const {
+    return identity_ ? identity_->fingerprint() : "(none)";
+}
+
+void ChatApplication::set_message_callback(MessageCallback cb) {
+    std::lock_guard lock(cb_mutex_); msg_cb_ = std::move(cb);
+}
+void ChatApplication::set_peer_change_callback(PeerChangeCallback cb) {
+    std::lock_guard lock(cb_mutex_); peer_cb_ = std::move(cb);
+}
+void ChatApplication::set_system_callback(SystemCallback cb) {
+    std::lock_guard lock(cb_mutex_); sys_cb_ = std::move(cb);
+}
+
+void ChatApplication::fire_message(std::string from, std::string text, bool is_mine) {
+    MessageEntry entry{from, text, "", is_mine};
+    {
+        std::lock_guard lock(log_mutex_);
+        message_log_.push_back(entry);
     }
+    std::lock_guard lock(cb_mutex_);
+    if (msg_cb_) msg_cb_(std::move(from), std::move(text), is_mine);
+}
+void ChatApplication::fire_peer_change() {
+    std::lock_guard lock(cb_mutex_);
+    if (peer_cb_) peer_cb_();
+}
+void ChatApplication::fire_system(std::string msg) {
+    std::lock_guard lock(cb_mutex_);
+    if (sys_cb_) sys_cb_(std::move(msg));
+}
 
-    // Persist peers and groups on clean exit.
-    if (store_) {
-        static_cast<void>(store_->save_peers(peer_dir_));
-        for (const auto& [gid, gname] : group_mgr_.list_groups()) {
-            auto snap = group_mgr_.snapshot(gid);
-            if (snap) static_cast<void>(store_->save_group(*snap));
+std::vector<ChatApplication::PeerInfo> ChatApplication::get_peers() const {
+    std::lock_guard lock(session_mutex_);
+    std::vector<PeerInfo> result;
+    for (size_t i = 0; i < sessions_.size(); ++i) {
+        const auto& e  = sessions_[i];
+        const auto  fp = e.session->peer_fingerprint();
+        bool online    = !e.dead->load();
+        size_t queued  = 0;
+        {
+            std::lock_guard qlock(queue_mutex_);
+            auto it = message_queue_.find(fp);
+            if (it != message_queue_.end()) queued = it->second.size();
         }
+        bool verified = false;
+        auto rec = peer_dir_.find_by_fingerprint(fp);
+        if (rec) verified = (rec->trust == cloak::core::TrustStatus::Verified);
+        result.push_back({i, e.session->peer_display_name(), fp, online, queued, verified});
+    }
+    return result;
+}
+
+void ChatApplication::switch_peer(size_t idx) {
+    std::lock_guard lock(session_mutex_);
+    if (idx < sessions_.size()) {
+        current_session_idx_ = idx;
+        // Pull history for the new peer into the log.
+        std::lock_guard llock(log_mutex_);
+        message_log_.clear();
+    }
+}
+size_t ChatApplication::current_peer_idx() const { return current_session_idx_; }
+
+std::vector<ChatApplication::MessageEntry> ChatApplication::get_message_snapshot() const {
+    std::lock_guard lock(log_mutex_);
+    return message_log_;
+}
+
+cloak::core::Result<void> ChatApplication::send_text_to_current(const std::string& text) {
+    std::lock_guard lock(session_mutex_);
+    if (sessions_.empty()) {
+        return std::unexpected(Error::from(ErrorCode::TransportError,
+            "No active session"));
+    }
+    if (current_session_idx_ >= sessions_.size() ||
+        sessions_[current_session_idx_].dead->load()) {
+        const auto& e = sessions_[std::min(current_session_idx_, sessions_.size()-1)];
+        queue_for_peer(e.session->peer_fingerprint(),
+                       e.session->peer_display_name(), text);
+        return {};
+    }
+    auto& s   = *sessions_[current_session_idx_].session;
+    auto  res = s.send_text(text);
+    if (!res) {
+        const std::string fp    = s.peer_fingerprint();
+        const std::string pname = s.peer_display_name();
+        sessions_[current_session_idx_].dead->store(true);
+        std::lock_guard qlock(queue_mutex_);
+        message_queue_[fp].push_front({text});
+        fire_system("[Queue] Message queued for " + pname + " — retry on reconnect.");
+        return std::unexpected(res.error());
+    }
+    fire_message(my_name_, text, true);
+    if (store_) {
+        cloak::wire::Message msg;
+        static_cast<void>(Crypto::random_bytes(
+            std::span<std::byte>(
+                reinterpret_cast<std::byte*>(msg.id.bytes.data()), 16)));
+        std::memcpy(msg.from.bytes.data(), identity_->signing_public().bytes.data(), 32);
+        std::memcpy(msg.to.bytes.data(), s.peer_signing_key().bytes.data(), 32);
+        msg.timestamp     = std::chrono::time_point_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now());
+        msg.body          = text;
+        msg.is_delivered  = false;
+        msg.is_read       = true;
+        msg.expires_at_ms = 0;
+        static_cast<void>(store_->save_message(msg));
+    }
+    return {};
+}
+
+cloak::core::Result<std::string> ChatApplication::make_invite_code() {
+    if (!relay_endpoint_)
+        return std::unexpected(Error::from(ErrorCode::TransportError,
+            "No relay configured"));
+
+    cloak::transport::RelayRoomId room_id{};
+    {
+        std::array<std::byte, 32 + 16> seed{};
+        std::memcpy(seed.data(), identity_->signing_public().bytes.data(), 32);
+        static_cast<void>(cloak::crypto::Crypto::random_bytes(
+            std::span<std::byte>(seed.data() + 32, 16)));
+        auto hash = cloak::crypto::Crypto::blake2b_256(
+            std::span<const std::byte>(seed));
+        if (!hash)
+            return std::unexpected(Error::from(ErrorCode::CryptoError,
+                "Failed to generate room ID"));
+        std::memcpy(room_id.data(), hash->data(), 32);
     }
 
+    const std::string code =
+        cloak::transport::make_invite_code(*relay_endpoint_, room_id);
+
+    // Launch background host thread; peer arrival fires peer-change callback.
+    const cloak::core::Endpoint relay_ep = *relay_endpoint_;
+    std::thread([this, relay_ep, room_id]() {
+        auto t_res = cloak::transport::RelayTransport::host(relay_ep, room_id);
+        if (!t_res) { fire_system("[Invite] Relay host failed."); return; }
+        auto s_res = cloak::session::Session::accept(
+            *identity_, my_name_, std::move(*t_res));
+        if (!s_res) { fire_system("[Invite] Handshake failed."); return; }
+        const auto peer_name = s_res->peer_display_name();
+        const auto peer_fp   = s_res->peer_fingerprint();
+        const auto& peer_pub = s_res->peer_signing_key();
+        {
+            cloak::identity::PeerRecord pr;
+            pr.signing_public_key = peer_pub;
+            pr.display_name       = peer_name;
+            pr.fingerprint        = peer_fp;
+            static_cast<void>(peer_dir_.upsert(pr));
+        }
+        add_session(std::make_unique<cloak::session::Session>(std::move(*s_res)));
+        fire_system("[Invite] Connected to " + peer_name);
+        fire_peer_change();
+    }).detach();
+
+    return code;
+}
+
+cloak::core::Result<void> ChatApplication::connect_invite(const std::string& code) {
+    cloak::core::Endpoint relay_ep;
+    cloak::transport::RelayRoomId room_id{};
+    if (!cloak::transport::parse_invite_code(code, relay_ep, room_id))
+        return std::unexpected(Error::from(ErrorCode::FramingError,
+            "Invalid invite code format"));
+
+    auto t_res = cloak::transport::RelayTransport::join(relay_ep, room_id);
+    if (!t_res) return std::unexpected(t_res.error());
+
+    auto s_res = cloak::session::Session::initiate(
+        *identity_, my_name_, std::move(*t_res));
+    if (!s_res) return std::unexpected(s_res.error());
+
+    const auto peer_name = s_res->peer_display_name();
+    const auto peer_fp   = s_res->peer_fingerprint();
+    const auto& peer_pub = s_res->peer_signing_key();
+    {
+        cloak::identity::PeerRecord pr;
+        pr.signing_public_key = peer_pub;
+        pr.display_name       = peer_name;
+        pr.fingerprint        = peer_fp;
+        static_cast<void>(peer_dir_.upsert(pr));
+    }
+    add_session(std::make_unique<cloak::session::Session>(std::move(*s_res)));
+    fire_system("[Invite] Connected to " + peer_name);
+    fire_peer_change();
+    return {};
+}
+
+cloak::core::Result<void> ChatApplication::connect_to(const std::string& host,
+                                                       uint16_t port) {
+    auto t_res = TcpTransport::connect({host, port});
+    if (!t_res) return std::unexpected(t_res.error());
+    auto s_res = Session::initiate(*identity_, my_name_, std::move(*t_res));
+    if (!s_res) return std::unexpected(s_res.error());
+    const auto pname = s_res->peer_display_name();
+    const auto fp    = s_res->peer_fingerprint();
+    add_session(std::make_unique<Session>(std::move(*s_res)));
+    fire_system("Connected to " + pname + " (FP: " + fp + ")");
+    fire_peer_change();
     return {};
 }
 
