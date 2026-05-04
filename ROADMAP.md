@@ -47,20 +47,20 @@ Crypto facade, SecureBuffer, Wire framing v2, TCP transport, Loopback discovery,
 - Host blocks waiting; guest hand-off via `shared_ptr<socket>`, no data races.
 
 **Invite-code discovery:**
-- Inviter: `cloak --relay <host:port>`, then `/make-invite` → prints a self-contained invite code.
+- Inviter clicks `[✉ Invite Code]` → generates a direct LAN code, or a relay code if started with `--relay`.
 - Room ID = BLAKE2b-256(sign_pub ‖ random_16), uniquely bound to the inviter's identity.
-- Invitee: `/connect-invite <code>` → connects through relay → full Cloak session.
+- Invitee clicks `[↪ Join via Code]` → connects directly or through relay → full Cloak session.
 
 **App integration:**
 - New `--relay <host:port>` flag for `cloak`.
-- Two new commands: `/make-invite`, `/connect-invite <code>`.
+- Button-driven FTXUI interface replacing the old REPL.
 - TOFU / peer directory / session machinery unchanged — relay is transport-transparent.
 
 ### Phase 4 success criteria
 
 - `cloak-relay.exe` starts, binds port, prints confirmation. Ctrl+C shuts down cleanly.
-- Alice runs `cloak --relay relay:8765`, types `/make-invite`, copies the invite code.
-- Bob runs `cloak`, types `/connect-invite <code>`. Session established.
+- Alice clicks `[✉ Invite Code]`, copies the direct or relay invite code.
+- Bob clicks `[↪ Join via Code]`, pastes the code. Session established.
 - All existing Phase 1–3 tests remain green.
 - Relay is a transparent pipe: no plaintext visible in relay process memory.
 

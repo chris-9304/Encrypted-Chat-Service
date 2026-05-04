@@ -174,24 +174,19 @@ Write-Host "==========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  QUICK START:"
 Write-Host ""
-Write-Host "  1. Open a terminal and run:"
-Write-Host "       cloak.exe --name YourName --port 8080" -ForegroundColor Cyan
+Write-Host "  1. Open a terminal and run (or use the Start Menu shortcut):"
+Write-Host "       cloak.exe --name YourName" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  2. On another machine (or another terminal), run:"
-Write-Host "       cloak.exe --name FriendName --port 9090 --connect <IP>:8080" -ForegroundColor Cyan
+Write-Host "  2. Use the new Button UI to connect to peers:"
+Write-Host "       a. Click [✉ Invite Code] to generate a direct LAN invite code."
+Write-Host "       b. Have your friend click [↪ Join via Code] and paste it."
 Write-Host ""
 Write-Host "  3. For internet connections (bypasses NAT/firewalls):"
-Write-Host "       a. Run relay on a public server:"
-Write-Host "            cloak-relay.exe --port 8765" -ForegroundColor Cyan
-Write-Host "       b. Inviter starts with relay flag and generates invite code:"
-Write-Host "            cloak.exe --name Alice --relay yourserver.com:8765" -ForegroundColor Cyan
-Write-Host "            /make-invite" -ForegroundColor Cyan
-Write-Host "       c. Invitee connects with the code:"
-Write-Host "            cloak.exe --name Bob" -ForegroundColor Cyan
-Write-Host "            /connect-invite <code>" -ForegroundColor Cyan
+Write-Host "       a. Run relay on a public server: cloak-relay.exe --port 8765" -ForegroundColor Cyan
+Write-Host "       b. Start with the relay flag: cloak.exe --name Alice --relay yourserver:8765" -ForegroundColor Cyan
+Write-Host "       c. The [✉ Invite Code] button will now generate a relay-based code."
 Write-Host ""
-Write-Host "  4. Send files/images/videos:  /send C:\path\to\file.jpg" -ForegroundColor Cyan
-Write-Host "  5. Offline messages are queued and delivered automatically on reconnect."
+Write-Host "  Offline messages are queued and delivered automatically on reconnect."
 Write-Host ""
 Write-Host "  Data stored at: %APPDATA%\Cloak\"
 Write-Host "  Uninstall:      $InstallDir\uninstall.ps1"

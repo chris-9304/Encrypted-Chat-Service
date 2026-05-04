@@ -55,8 +55,9 @@ After install:
 
 ```powershell
 # Both parties run this — they find each other automatically via mDNS
-.\cloak.exe --name "Alice" --port 5000
-.\cloak.exe --name "Bob"   --port 5001
+.\cloak.exe --name "Alice"
+.\cloak.exe --name "Bob"
+# Alternatively, click [✉ Invite Code] in Alice's UI and have Bob paste it via [↪ Join via Code]
 ```
 
 ### Internet (via relay)
@@ -65,14 +66,14 @@ After install:
 # 1. Run a relay server on a public host
 .\cloak-relay.exe --port 8765
 
-# 2. Alice creates an invite code
-.\cloak.exe --name "Alice" --port 5000 --relay relay.example.com:8765
-# Inside Cloak: /make-invite
-# → prints: relay.example.com:8765/a3f8c2...
+# 2. Alice starts with the relay flag
+.\cloak.exe --name "Alice" --relay relay.example.com:8765
+# Inside the UI: Click [✉ Invite Code]
+# → generates: relay.example.com:8765/a3f8c2...
 
 # 3. Bob connects with the invite code
-.\cloak.exe --name "Bob" --port 5001
-# Inside Cloak: /connect-invite relay.example.com:8765/a3f8c2...
+.\cloak.exe --name "Bob"
+# Inside the UI: Click [↪ Join via Code] and paste relay.example.com:8765/a3f8c2...
 ```
 
 ---
@@ -139,25 +140,15 @@ To report a security vulnerability, see [SECURITY.md](SECURITY.md).
 
 ---
 
-## Key Commands
+## UI Buttons
 
-```
-/peers                     List connected peers
-/switch <name>             Switch active peer
-/safety                    Show safety number for current peer
-/verify                    Mark current peer as verified
-/send <path>               Send a file
-/history                   Show message history
-/group-create <name>       Create a group
-/group-list                List groups
-/group-switch <name>       Switch to a group
-/group-invite <peer>       Invite peer to group
-/group-leave               Leave current group
-/make-invite               Generate an invite code (relay mode)
-/connect-invite <code>     Connect via invite code
-/devices                   List linked devices
-/link-device <pub_hex>     Link a secondary device
-```
+Cloak features a fully button-driven FTXUI terminal interface.
+
+- **[⊙ Search LAN]** — Refresh the peer list by probing the local network
+- **[✉ Invite Code]** — Generate an invite code (direct LAN code if no relay is configured, or relay code if started with `--relay`)
+- **[↪ Join via Code]** — Paste a code to connect directly or via relay
+- **[➡ Direct Connect]** — Enter a specific IP and port to connect manually
+- **Peer List** — Scroll up/down and press Enter to switch conversations
 
 See [docs/DEMO.md](docs/DEMO.md) for a full walkthrough.
 
