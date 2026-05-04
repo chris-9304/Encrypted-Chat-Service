@@ -73,7 +73,7 @@ Crypto facade, SecureBuffer, Wire framing v2, TCP transport, Loopback discovery,
 The following items are outstanding before a v1.0 production release:
 
 - [ ] **External security audit** — independent review of the cryptographic protocol implementation
-- [ ] **Code-signing certificate** — replace development self-signed Authenticode cert with a CA-issued cert for the MSI installer
+- [ ] **Code-signing certificate** — replace development self-signed Authenticode cert with a CA-issued cert for the Inno Setup installer
 - [ ] **Full mDNS implementation** — replace `LoopbackDiscoveryService` with `MdnsDiscoveryService` using the Win32 DNS-SD API for zero-config LAN discovery
 - [ ] **Passphrase change** — allow re-encrypting the identity file and DB key with a new passphrase without data loss
 - [ ] **Key rotation** — mechanism for users to generate a new long-term identity and migrate their peer relationships

@@ -1,67 +1,80 @@
 # Installer
 
-Cloak has two distribution methods:
+Cloak ships two distribution artifacts, both produced by `build-dist.ps1`:
 
-## Current: PowerShell ZIP package (`dist/`)
+---
 
-The primary release format is a self-contained ZIP archive located at `dist/cloak-0.4.0-win64.zip`.
+## Primary: `installer.exe` (Inno Setup)
 
-**Contents:**
+A standard Windows installer. **Double-click to install on any Windows 10/11 machine.**
 
-| File | Purpose |
-|------|---------|
-| `cloak.exe` | Main application |
-| `cloak-relay.exe` | Standalone relay server |
-| `libsodium.dll` | Crypto runtime |
-| `boost_program_options-vc143-mt-x64-1_90.dll` | CLI runtime |
-| `sqlite3.dll` | Database runtime |
-| `vc_redist.x64.exe` | Visual C++ 2022 Runtime |
-| `install.ps1` | Plug-and-play installer |
+**Script:** `installer/cloak.iss`  
+**Compiler:** Inno Setup 6 (`winget install JRSoftware.InnoSetup`)  
+**Output:** `dist/installer.exe` (~25 MB, self-contained)
 
-**User steps:** unzip → right-click `install.ps1` → Run with PowerShell → follow prompts → open new terminal → run `cloak.exe`.
+### What the installer does
 
-**What `install.ps1` installs to:**
-- Admin: `%ProgramFiles%\Cloak\` + system PATH + CommonPrograms shortcuts
-- Per-user: `%LOCALAPPDATA%\Cloak\` + user PATH + user Programs shortcuts
+1. Presents a modern wizard UI with version info and quick-start instructions
+2. Lets the user choose install location (`%ProgramFiles%\Cloak\` or per-user)
+3. Optional tasks: desktop shortcut, add to PATH
+4. Silently installs the Visual C++ 2022 Runtime if not present (from bundled `vc_redist.x64.exe`)
+5. Copies `cloak.exe`, `cloak-relay.exe`, and runtime DLLs to the install directory
+6. Creates Start Menu shortcuts: **Cloak** and **Cloak Relay Server**
+7. Registers in **Add/Remove Programs** with a proper uninstaller
 
-**To rebuild the ZIP** after making source changes:
+### Build the installer
+
 ```powershell
-.\build-dist.ps1          # from the project root
+# From the project root — builds release binaries AND produces installer.exe:
+.\build-dist.ps1
+
+# Or compile the .iss directly (requires existing release binaries in dist\cloak\):
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer\cloak.iss
 ```
 
-## Planned: WiX Toolset v4 MSI
-
-A signed MSI installer is planned for the v1.0 production release. It will be built with **WiX Toolset v4** and will:
-
-- Install `cloak.exe` and `cloak-relay.exe` to `%ProgramFiles%\Cloak\`
-- Create a Start Menu shortcut
-- Register a proper Add/Remove Programs entry
-- Handle clean uninstall (preserving `%APPDATA%\Cloak\` by default)
-- Be signed with a CA-issued Authenticode certificate
-
-To build the MSI (placeholder target):
-```powershell
-cmake --preset release
-cmake --build --preset release --target installer
-```
-
-The WiX `.wxs` project files will live in this directory when implemented.
-
-## Install layout
-
-Regardless of method, the installed layout is:
+### Installed layout
 
 ```
-<InstallDir>\
+%ProgramFiles%\Cloak\  (or %LOCALAPPDATA%\Programs\Cloak\ for per-user)
     cloak.exe
     cloak-relay.exe
     libsodium.dll
     boost_program_options-vc143-mt-x64-1_90.dll
     sqlite3.dll
-    uninstall.ps1              (written by install.ps1)
+    unins000.exe     <- Inno Setup uninstaller
 
-%APPDATA%\Cloak\               (per-user, preserved on uninstall)
-    identity.bin               (encrypted long-term identity)
-    store.db                   (encrypted message database)
-    logs\                      (rotating log files)
+%APPDATA%\Cloak\     (per-user data, preserved on uninstall)
+    identity.bin     <- encrypted long-term identity
+    store.db         <- encrypted message history
+    logs\            <- rotating log files
 ```
+
+---
+
+## Portable: `cloak-0.4.0-win64.zip`
+
+A self-contained ZIP with no installer. Unzip anywhere and:
+
+| Method | Steps |
+|--------|-------|
+| **Easy (no PowerShell knowledge)** | Double-click `Install Cloak.bat` — runs the PowerShell installer with the execution policy bypassed |
+| **Direct** | Run `cloak.exe` directly from the command line or terminal |
+| **PowerShell (advanced)** | Run `install.ps1` directly for automated deployments |
+
+No Start Menu entry, no Add/Remove Programs entry. Suitable for running from a USB drive, for portable installs, or for users who prefer not to use the standard installer.
+
+---
+
+## Inno Setup `.iss` script notes
+
+`installer/cloak.iss` key settings:
+
+| Setting | Value |
+|---------|-------|
+| `AppId` | Fixed GUID — preserves upgrade detection across versions |
+| `PrivilegesRequired` | `lowest` with `OverridesAllowed=dialog` — user chooses Admin or per-user |
+| `ArchitecturesInstallIn64BitMode` | `x64compatible` — 64-bit only |
+| `MinVersion` | `10.0.17763` — Windows 10 1809 minimum |
+| `Compression` | `lzma2/ultra64` — maximum compression |
+| VC++ check | `VCRedistNeedsInstall()` reads `HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64` |
+| PATH update | `NeedsPathEntry()` avoids duplicate PATH entries |

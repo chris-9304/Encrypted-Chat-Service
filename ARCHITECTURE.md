@@ -49,7 +49,7 @@ The architecture was deliberately more ambitious than Phase 1's feature set requ
 4. **Windows-native.** MSVC 2022, vcpkg, native Win32 APIs (DNS-SD for mDNS discovery, VirtualLock for memory pinning). No WSL dependency. The binary is a single .exe plus an MSI installer.
 5. **Plug and play.** Install, launch, chat. Zero configuration for LAN use. Defaults are safe.
 6. **Failure is loud.** No silent fallback to weaker crypto. No TOFU-then-forget. Identity changes alert the user; `TrustStatus::Changed` is visible and must be acknowledged.
-7. **Testing discipline.** Unit tests everywhere, RFC test vectors for protocol code, integration tests that spin up two instances and exchange messages, ASan in CI, fuzzers on every parser.
+7. **Testing discipline.** Unit tests everywhere, RFC test vectors for protocol code, integration tests that spin up two instances and exchange messages, ASan in CI.
 8. **Secrets never leave secure containers.** All key material in `SecureBuffer<N>` that mlocks and zeros on destruction. Never logged. Never serialized unencrypted.
 
 ## Class model
@@ -199,12 +199,10 @@ cloak/
 │
 ├── tests/
 │   ├── unit/                    ← one directory per module, auto-discovered by cloak_add_library.cmake
-│   ├── vectors/                 ← RFC test vectors (X25519, Ed25519, ChaCha20-Poly1305)
-│   └── fuzz/                    ← libFuzzer harnesses per parser
+│   └── vectors/                 ← RFC test vectors (X25519, Ed25519, ChaCha20-Poly1305, Argon2id)
 │
 ├── docs/
 │   ├── DEMO.md                  ← CLI usage walkthrough
-│   ├── OOP_PRINCIPLES.md        ← design principles reference
 │   └── adr/                     ← Architecture Decision Records
 │       ├── 0001-oop-cpp-not-c-abi.md
 │       ├── 0002-windows-native-msvc.md
@@ -213,7 +211,7 @@ cloak/
 │       ├── 0005-mdns-for-discovery.md
 │       └── 0006-thread-per-connection-relay.md
 │
-├── installer/                   ← WiX MSI project
+├── installer/                   ← WiX MSI project (planned v1.0; current distribution uses dist/ ZIP)
 └── .github/workflows/           ← CI pipelines
 ```
 
@@ -226,15 +224,18 @@ cloak/
 - **Static analysis.** MSVC `/analyze` in the `analyze` preset.
 - **Sanitizers.** Windows ASan in the `asan` preset.
 
-## Installer
+## Distribution
 
-WiX Toolset v4 produces a signed MSI. Installs `cloak.exe` and `cloak-relay.exe` to `%ProgramFiles%\Cloak\`. Per-user data under `%APPDATA%\Cloak\`. Clean uninstall; user data preserved unless full-removal is chosen.
+**Current (v0.4.0):** `dist/cloak-0.4.0-win64.zip` — self-contained archive with `cloak.exe`, `cloak-relay.exe`, runtime DLLs, `vc_redist.x64.exe`, and `install.ps1`. No build tools needed on end-user's machine.
+
+Run `.\build-dist.ps1` from the project root to rebuild the zip from a fresh release build.
+
+**Planned (v1.0):** WiX Toolset v4 MSI with Authenticode signing.
 
 ## Testing
 
 - **Unit.** Catch2 v3; auto-discovered by `cloak_add_library.cmake`.
-- **RFC vectors.** RFC 7748 (X25519), RFC 8032 (Ed25519), RFC 8439 (ChaCha20-Poly1305).
-- **Fuzz.** libFuzzer harnesses for all wire parsers.
+- **RFC vectors.** RFC 7748 (X25519), RFC 8032 (Ed25519), RFC 8439 (ChaCha20-Poly1305), Argon2id.
 - **ASan.** Enabled via the `asan` preset.
 - **Coverage targets.** `crypto/` `identity/` `session/` ≥ 85%; elsewhere ≥ 70%.
 

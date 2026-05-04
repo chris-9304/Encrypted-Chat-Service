@@ -14,7 +14,7 @@
 4. [Object-Oriented Design Principles](#4-object-oriented-design-principles)
 5. [Every Feature Explained](#5-every-feature-explained)
 6. [Protocols and Standards](#6-protocols-and-standards)
-7. [Tools and Libraries](#7-tools-and-libraries) — 7.1 libsodium · 7.2 Boost.Asio · 7.3 SQLite3 · 7.4 FTXUI · 7.5 spdlog · 7.6 Catch2 · 7.7 CMake+Ninja+vcpkg · 7.8 Distribution ZIP · 7.9 WiX MSI · 7.10 MSVC 2022
+7. [Tools and Libraries](#7-tools-and-libraries) — 7.1 libsodium · 7.2 Boost.Asio · 7.3 SQLite3 · 7.4 FTXUI · 7.5 spdlog · 7.6 Catch2 · 7.7 CMake+Ninja+vcpkg · 7.8 Inno Setup · 7.9 MSVC 2022
 8. [Security Design](#8-security-design)
 9. [Architecture Walkthrough](#9-architecture-walkthrough)
 10. [Project Phases](#10-project-phases)
@@ -715,31 +715,29 @@ The custom `cloak_add_library.cmake` macro auto-discovers unit tests under `test
 
 **`build-dist.ps1`** — a PowerShell script in the project root that automates the full build-to-distribution workflow: it initialises the MSVC environment via `vcvars64.bat`, runs `cmake --preset release`, runs `cmake --build --preset release`, collects the two executables and three runtime DLLs, updates `dist/cloak/`, and produces `dist/cloak-0.4.0-win64.zip`.
 
-### 7.8 Distribution Package (`install.ps1` + ZIP)
+### 7.8 Inno Setup 6 (Installer)
 
-The primary distribution mechanism is a self-contained ZIP archive (`dist/cloak-0.4.0-win64.zip`) that requires no build tools on the end-user's machine. Contents:
+Cloak's primary distribution format is `installer.exe` — a standard Windows installer built with Inno Setup 6. The script lives at `installer/cloak.iss`.
 
-| File | Purpose |
-|------|---------|
-| `cloak.exe` | Main application (442 KB, built with MSVC v143) |
-| `cloak-relay.exe` | Relay server (152 KB, optional) |
-| `libsodium.dll` | Cryptographic primitives |
-| `boost_program_options-vc143-mt-x64-1_90.dll` | CLI argument parsing |
-| `sqlite3.dll` | Embedded database engine |
-| `vc_redist.x64.exe` | Visual C++ 2022 Runtime (25 MB, installed silently if missing) |
-| `install.ps1` | PowerShell installer |
+**Why Inno Setup over WiX/MSI:**
+- Single `.iss` text file, no XML authoring overhead
+- Produces a single self-contained `.exe` that runs without .NET or other prerequisites on the build machine
+- Works out-of-the-box on every Windows 10/11 machine without requiring SmartScreen certificate whitelisting workarounds
+- Handles elevation, per-user vs. system-wide installs, PATH updates, Add/Remove Programs registration, and uninstall — all in one pass
 
-`install.ps1` is a single-file installer that:
-1. Detects elevation (Admin vs. per-user)
-2. Checks the registry for the VC++ 2022 Runtime and installs it silently if missing
-3. Copies all files to `%ProgramFiles%\Cloak\` (Admin) or `%LOCALAPPDATA%\Cloak\` (per-user)
-4. Adds the install directory to the system or user PATH
-5. Creates Start Menu shortcuts for Cloak and Cloak Relay Server
-6. Writes `uninstall.ps1` inside the install directory for clean removal
+**What the installer does:**
+1. Welcome screen with version and quick-start instructions
+2. User chooses install location (`%ProgramFiles%\Cloak\` or per-user)
+3. Optional tasks: desktop shortcut, add Cloak to PATH
+4. VC++ 2022 Runtime installed silently via registry check + `vc_redist.x64.exe`
+5. Files copied; Start Menu shortcuts created — they use `cmd /k cloak.exe` so the window stays open
+6. Registered in Add/Remove Programs with a proper uninstaller
 
-### 7.9 WiX Toolset (MSI Installer — planned)
+**Portable alternative:** `cloak-0.4.0-win64.zip` — unzip anywhere and double-click `Install Cloak.bat` (no PowerShell knowledge required), or run `cloak.exe` directly. The `.bat` file invokes the PowerShell installer with the execution policy automatically bypassed, allowing the install to proceed without user configuration.
 
-WiX Toolset v4 will produce a signed MSI installer for formal distribution. The WiX project is scaffolded in `installer/`. In the current release, the `install.ps1` ZIP approach is the primary distribution method. The WiX MSI is planned for the v1.0 production release.
+Both artifacts are produced by `build-dist.ps1` in one command.
+
+### 7.9 MSVC 2022 Toolchain
 
 ### 7.10 MSVC 2022 Toolchain
 
@@ -1036,27 +1034,21 @@ These verify that Cloak's crypto calls (through libsodium) produce the exact out
 
 This is the recommended path for end users.
 
-1. Download `cloak-0.4.0-win64.zip` from the `dist/` directory (or a release page).
-2. Unzip it anywhere.
-3. Right-click `install.ps1` and choose **Run with PowerShell**, or open PowerShell in that folder and run:
-   ```powershell
-   .\install.ps1
-   ```
-4. Follow the on-screen prompts (choose Y to proceed, Admin or per-user).
-5. Open a **new** terminal — PATH is now updated — and run:
-   ```powershell
-   cloak.exe --name "Alice" --port 8080
-   ```
+#### Installer (recommended)
 
-The installer handles the VC++ 2022 Runtime automatically. No other dependencies are needed on the end-user's machine.
+1. Download **`installer.exe`** from the `dist/` directory (or a release page).
+2. Double-click it. The installer wizard opens immediately.
+3. Choose install location (system-wide or per-user), optional desktop shortcut, and whether to add Cloak to PATH.
+4. Click Install. The VC++ 2022 Runtime is handled automatically.
+5. After install, search **"Cloak"** in the Start Menu and click it. You'll be prompted for your display name, then the app starts.
 
-To uninstall:
-```powershell
-# Find the install directory (printed at end of install) and run:
-%ProgramFiles%\Cloak\uninstall.ps1
-# or for per-user:
-%LOCALAPPDATA%\Cloak\uninstall.ps1
-```
+To uninstall: **Settings → Apps → Cloak → Uninstall**, or use the entry in Add/Remove Programs.
+
+#### Portable (ZIP alternative)
+
+1. Download **`cloak-0.4.0-win64.zip`** and unzip it anywhere.
+2. To install the VC++ 2022 Runtime (if missing), double-click **`Install Cloak.bat`** (no PowerShell knowledge needed).
+3. To run Cloak directly, double-click **`cloak.exe`** or open a terminal in the unzipped folder and type `cloak.exe`.
 
 ---
 
@@ -1120,12 +1112,16 @@ build/release/src/relay/cloak-relay.exe
 Runtime DLLs are placed next to each executable automatically by CMake:
 `libsodium.dll`, `boost_program_options-vc143-mt-x64-1_90.dll`, `sqlite3.dll`
 
-#### Packaging the ZIP
+#### Packaging the distribution artifacts
 
 ```powershell
-.\build-dist.ps1              # full build + create dist/cloak-0.4.0-win64.zip
-.\build-dist.ps1 -SkipBuild  # re-package existing release binaries
+.\build-dist.ps1              # full build + create both dist/installer.exe and dist/cloak-0.4.0-win64.zip
+.\build-dist.ps1 -SkipBuild  # re-package existing release binaries (no rebuild)
 ```
+
+This produces:
+- **`dist/installer.exe`** — the primary distribution artifact (recommended for end users)
+- **`dist/cloak-0.4.0-win64.zip`** — portable alternative for advanced users
 
 #### Running Cloak (from source build)
 
@@ -1166,15 +1162,19 @@ Runtime DLLs are placed next to each executable automatically by CMake:
 | `/devices` | List linked devices |
 | `/link-device <pub_hex>` | Link a secondary device |
 
-### WiX MSI Installer (planned for v1.0)
+### Building the installer manually
 
 ```powershell
-cmake --preset release
-cmake --build --preset release --target installer
-# Output: build/release/installer/cloak-0.4.0.msi
-```
+# Prerequisites on build machine:
+winget install JRSoftware.InnoSetup
 
-The WiX MSI project is scaffolded in `installer/`. Code-signing with a CA-issued Authenticode certificate is required before formal distribution.
+# After building the release binaries:
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer\cloak.iss
+# Output: dist\installer.exe
+
+# Or run everything in one command:
+.\build-dist.ps1
+```
 
 ---
 

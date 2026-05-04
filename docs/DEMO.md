@@ -8,11 +8,11 @@ This guide shows how to run Cloak end-to-end: LAN chat, file transfer, group cha
 
 **Option A — Install from the release package (easiest)**
 
-Unzip `dist/cloak-0.4.0-win64.zip` and run `install.ps1`. After install, `cloak.exe` and `cloak-relay.exe` are on your PATH.
+Download `installer.exe` from the `dist/` folder and double-click it. After install, `cloak.exe` and `cloak-relay.exe` are available:
+- From the Start Menu (search "Cloak")
+- From any terminal (added to PATH if you ticked the option)
 
-```powershell
-.\install.ps1       # right-click → Run with PowerShell, or run in PowerShell
-```
+Or, for the portable ZIP: unzip `dist/cloak-0.4.0-win64.zip` and double-click `Install Cloak.bat`. After that, you can run `cloak.exe` directly from the unzipped folder.
 
 **Option B — Build from source**
 
@@ -26,6 +26,8 @@ Built binaries are at:
 - `build/debug/src/relay/cloak-relay.exe` — relay server
 
 The demos below use `cloak.exe` and `cloak-relay.exe` — if running from source, prefix with the full path above, or `cd` into the binary directory first.
+
+**Note:** If you run `cloak.exe` without the `--name` argument, it will prompt you to enter your display name interactively. The examples below use `--name` to make them non-interactive.
 
 ---
 

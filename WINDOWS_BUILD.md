@@ -26,10 +26,10 @@ setx VCPKG_ROOT "C:\vcpkg"
 
 Close and reopen PowerShell so `VCPKG_ROOT` is picked up.
 
-**3. Install the WiX Toolset v4** (needed for the MSI installer target; not needed for development).
+**3. Install Inno Setup 6** (needed to build `installer.exe`; not needed for development).
 
 ```powershell
-dotnet tool install --global wix
+winget install JRSoftware.InnoSetup
 ```
 
 **4. Install Git and a terminal.**
@@ -72,12 +72,12 @@ Runtime DLLs are copied by CMake (via vcpkg) next to each executable automatical
 - `boost_program_options-vc143-mt-x64-1_90.dll`
 - `sqlite3.dll`
 
-## Packaging the release zip
+## Packaging the release
 
-`build-dist.ps1` in the project root automates the full build-to-zip workflow:
+`build-dist.ps1` in the project root automates the full build-to-distribution workflow:
 
 ```powershell
-# Full build + create dist/cloak-0.4.0-win64.zip
+# Full build + produce both artifacts
 .\build-dist.ps1
 
 # Re-package without rebuilding (use existing binaries in build/release/)
@@ -87,60 +87,63 @@ Runtime DLLs are copied by CMake (via vcpkg) next to each executable automatical
 .\build-dist.ps1 -VcpkgRoot D:\vcpkg
 ```
 
-This script:
+This script (5 steps):
 1. Calls `vcvars64.bat` to initialise the MSVC environment
 2. Runs `cmake --preset release` (clears stale cache first)
 3. Runs `cmake --build --preset release`
 4. Copies `cloak.exe`, `cloak-relay.exe`, and the three runtime DLLs into `dist/cloak/`
-5. Produces `dist/cloak-0.4.0-win64.zip` ready for distribution
+5. Produces `dist/cloak-0.4.0-win64.zip` (portable archive)
+6. Produces `dist/installer.exe` via Inno Setup (`installer/cloak.iss`)
+
+Requires Inno Setup 6 for the installer.exe step. The ZIP is always produced regardless.
 
 The `dist/cloak/` directory always reflects the most recent packaging run.
 
-## Release package contents
+## Distribution artifacts
 
-`dist/cloak-0.4.0-win64.zip` (approximately 25 MB) contains:
+`build-dist.ps1` produces two artifacts in `dist/`:
+
+### `installer.exe` — recommended for end users
+
+A standard Windows installer (Inno Setup 6). Double-click to install:
+
+| Step | What happens |
+|------|-------------|
+| 1 | Welcome screen with quick-start instructions |
+| 2 | Choose install location (`%ProgramFiles%\Cloak\` or per-user) |
+| 3 | Choose tasks: desktop shortcut, add to PATH |
+| 4 | VC++ 2022 Runtime installed silently if missing |
+| 5 | Files installed, Start Menu shortcuts created |
+| 6 | Registered in Add/Remove Programs for clean uninstall |
+
+After install, **search "Cloak" in Start Menu** or open any terminal:
+```
+cloak.exe --name "Alice" --port 8080
+```
+
+### `cloak-0.4.0-win64.zip` — portable (no install)
 
 | File | Purpose |
 |------|---------|
 | `cloak.exe` | Main application |
-| `cloak-relay.exe` | Standalone relay server (optional) |
-| `libsodium.dll` | Cryptographic primitives (libsodium) |
+| `cloak-relay.exe` | Standalone relay server |
+| `libsodium.dll` | Cryptographic primitives |
 | `boost_program_options-vc143-mt-x64-1_90.dll` | CLI argument parsing |
 | `sqlite3.dll` | Embedded database engine |
-| `vc_redist.x64.exe` | Visual C++ 2022 Runtime installer |
-| `install.ps1` | Plug-and-play installer script |
+| `vc_redist.x64.exe` | Visual C++ 2022 Runtime (install if missing) |
+| `install.ps1` | Fallback PowerShell installer |
 
-## End-user install (from zip, no build tools needed)
+Unzip anywhere and run `cloak.exe` directly. No Start Menu entry, no Add/Remove Programs registration.
 
-```powershell
-# 1. Unzip cloak-0.4.0-win64.zip anywhere, then:
-.\install.ps1
-
-# 2. Open a NEW terminal and run:
-cloak.exe --name "Alice" --port 8080
-```
-
-What `install.ps1` does:
-
-| Step | Action |
-|------|--------|
-| 1 | Checks registry for VC++ 2022 Runtime; installs `vc_redist.x64.exe` silently if missing |
-| 2 | Copies all files to `%ProgramFiles%\Cloak\` (admin) or `%LOCALAPPDATA%\Cloak\` (per-user) |
-| 3 | Adds install directory to the system or user PATH |
-| 4 | Creates Start Menu shortcuts: **Cloak** and **Cloak Relay Server** |
-| 5 | Writes `uninstall.ps1` inside the install directory for clean removal |
-
-Run as Administrator for a system-wide install; run normally for a per-user install.
-
-## Running the installer build (WiX MSI)
+## Building the Inno Setup installer manually
 
 ```powershell
-cmake --preset release
-cmake --build --preset release
-cmake --build --preset release --target installer
+# After running cmake --build --preset release:
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer\cloak.iss
+# Output: dist\installer.exe
 ```
 
-Outputs an MSI under `build/release/installer/`. In development builds this is self-signed.
+Or just use `build-dist.ps1` which handles everything automatically.
 
 ## Common problems
 

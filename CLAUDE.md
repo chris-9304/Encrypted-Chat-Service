@@ -62,7 +62,7 @@ The `include/cloak/` tree mirrors `src/` and exposes the public API of each modu
 
 ## Testing
 
-Tests live in `tests/unit/<module>/`. The `cmake/cloak_add_library.cmake` macro auto-discovers `tests/unit/<name>/*.cpp` and creates `test_<name>` executables linked against `Catch2::Catch2WithMain`. RFC test vectors are in `tests/vectors/`. Fuzz harnesses in `tests/fuzz/`.
+Tests live in `tests/unit/<module>/`. The `cmake/cloak_add_library.cmake` macro auto-discovers `tests/unit/<name>/*.cpp` and creates `test_<name>` executables linked against `Catch2::Catch2WithMain`. RFC test vectors are in `tests/vectors/crypto/`.
 
 Coverage targets: `crypto/`, `identity/`, `session/` ≥ 85%; others ≥ 70%.
 

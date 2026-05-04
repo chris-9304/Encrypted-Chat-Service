@@ -5,7 +5,6 @@
     "libsodium",
     "boost-asio",
     "boost-program-options",
-    "protobuf",
     "sqlite3",
     "spdlog",
     "fmt",
