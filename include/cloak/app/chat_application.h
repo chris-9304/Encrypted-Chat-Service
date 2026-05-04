@@ -92,8 +92,10 @@ public:
     cloak::core::Result<void>        connect_to(const std::string& host, uint16_t port);
 
     // ── Identity info ─────────────────────────────────────────────────────────
-    std::string my_name()        const;
-    std::string my_fingerprint() const;
+    std::string my_name()         const;
+    std::string my_fingerprint()  const;
+    uint16_t    my_listen_port()  const;  // actual bound port (0 = not yet known)
+    std::string my_lan_ip()       const;  // outbound LAN IP address
 
     // ── Message history ───────────────────────────────────────────────────────
     struct MessageEntry {
@@ -191,10 +193,14 @@ private:
     mutable std::mutex                               queue_mutex_;
     std::map<std::string, std::deque<QueuedMessage>> message_queue_; // key = peer fingerprint
 
-    std::atomic<bool> running_{true};
-    std::thread       listen_thread_;
-    std::thread       discovery_thread_;
-    std::thread       cleanup_thread_;
+    std::atomic<bool>    running_{true};
+    std::thread          listen_thread_;
+    std::thread          discovery_thread_;
+    std::thread          cleanup_thread_;
+
+    // Actual listen port (set once the listen socket is bound).
+    std::atomic<uint16_t> actual_listen_port_{0};
+    std::string           my_lan_ip_;   // computed once in run()
 
     mutable std::mutex print_mutex_;
 };

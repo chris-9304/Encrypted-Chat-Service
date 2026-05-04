@@ -261,8 +261,17 @@ void ChatApplication::session_recv_func_impl(
 // ── Background: listen ────────────────────────────────────────────────────────
 
 void ChatApplication::listen_thread_func() {
+    // Bind once so we always listen on the same port (and can report it).
+    auto listener_res = cloak::transport::TcpListener::bind(my_port_);
+    if (!listener_res) {
+        fire_system("[Listen] Bind failed: " + listener_res.error().message);
+        return;
+    }
+    actual_listen_port_.store(listener_res->local_port());
+    fire_peer_change(); // Triggers UI refresh so the port shows immediately.
+
     while (running_) {
-        auto t_res = TcpTransport::accept_from(my_port_);
+        auto t_res = listener_res->accept();
         if (!t_res || !running_) {
             if (running_)
                 std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -292,6 +301,7 @@ void ChatApplication::listen_thread_func() {
         fire_system("Connected: " + peer_name);
         fire_peer_change();
     }
+    listener_res->close();
 }
 
 // ── Background: cleanup dead sessions ────────────────────────────────────────
@@ -488,6 +498,18 @@ Result<void> ChatApplication::run() {
     discovery_thread_ = std::thread(&ChatApplication::discovery_thread_func, this);
     cleanup_thread_   = std::thread(&ChatApplication::cleanup_thread_func, this);
 
+    // Cache the outbound LAN IP (used by the UI and invite code display).
+    try {
+        boost::asio::io_context io;
+        boost::asio::ip::udp::socket sock(io, boost::asio::ip::udp::v4());
+        boost::system::error_code ec;
+        sock.connect(boost::asio::ip::udp::endpoint(
+            boost::asio::ip::make_address("8.8.8.8", ec), 53));
+        if (!ec) my_lan_ip_ = sock.local_endpoint().address().to_string();
+    } catch (...) {
+        my_lan_ip_ = "127.0.0.1";
+    }
+
     // Outbound connect on startup if --connect was given.
     if (!connect_target_.empty()) {
         const auto colon = connect_target_.find(':');
@@ -559,6 +581,8 @@ std::string ChatApplication::my_name()        const { return my_name_; }
 std::string ChatApplication::my_fingerprint() const {
     return identity_ ? identity_->fingerprint() : "(none)";
 }
+uint16_t    ChatApplication::my_listen_port() const { return actual_listen_port_.load(); }
+std::string ChatApplication::my_lan_ip()      const { return my_lan_ip_; }
 
 void ChatApplication::set_message_callback(MessageCallback cb) {
     std::lock_guard lock(cb_mutex_); msg_cb_ = std::move(cb);
@@ -736,8 +760,9 @@ cloak::core::Result<std::string> ChatApplication::make_invite_code() {
 
     // 4. Background thread: accept exactly one connection, then do Cloak handshake.
     std::thread([this, listener]() mutable {
-        auto t_res = listener->accept_one();
+        auto t_res = listener->accept();
         if (!t_res) { fire_system("[Invite] Listen failed: " + t_res.error().message); return; }
+        listener->close(); // done with this listener
 
         auto s_res = cloak::session::Session::accept(
             *identity_, my_name_, std::move(*t_res));

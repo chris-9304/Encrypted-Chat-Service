@@ -1,5 +1,4 @@
 // chat_ui.cpp — Full FTXUI button-driven UI for Cloak.
-// All slash-command typing is gone; every action is driven by buttons/menus.
 
 #include <cloak/ui/chat_ui.h>
 #include <cloak/app/chat_application.h>
@@ -10,6 +9,12 @@
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/color.hpp>
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -19,45 +24,104 @@ namespace cloak::ui {
 
 using namespace ftxui;
 
+// ── Win32 Clipboard helpers ───────────────────────────────────────────────────
+
+static std::string clip_get() {
+    if (!OpenClipboard(nullptr)) return {};
+    std::string result;
+    HANDLE h = GetClipboardData(CF_TEXT);
+    if (h) {
+        const char* data = static_cast<const char*>(GlobalLock(h));
+        if (data) result = data;
+        GlobalUnlock(h);
+    }
+    CloseClipboard();
+    // Strip \r so Windows line endings don't break inputs.
+    std::string clean;
+    clean.reserve(result.size());
+    for (char c : result) if (c != '\r') clean += c;
+    return clean;
+}
+
+static void clip_set(const std::string& text) {
+    if (!OpenClipboard(nullptr)) return;
+    EmptyClipboard();
+    HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, text.size() + 1);
+    if (h) {
+        char* data = static_cast<char*>(GlobalLock(h));
+        if (data) {
+            std::memcpy(data, text.c_str(), text.size() + 1);
+            GlobalUnlock(h);
+            SetClipboardData(CF_TEXT, h);
+        }
+    }
+    CloseClipboard();
+}
+
+// Wrap a component so Ctrl+V (ASCII 0x16) pastes from clipboard into *target.
+static Component with_paste(Component inner, std::string* target) {
+    return CatchEvent(inner, [target](Event e) -> bool {
+        if (e == Event::Character('\x16')) {
+            std::string clip = clip_get();
+            if (!clip.empty()) *target += clip;
+            return true;
+        }
+        return false;
+    });
+}
+
+// ── ChatUi ───────────────────────────────────────────────────────────────────
+
 ChatUi::ChatUi(cloak::app::ChatApplication& app) : app_(app) {}
 
-void ChatUi::request_shutdown() {
-    shutdown_ = true;
-}
+void ChatUi::request_shutdown() { shutdown_ = true; }
 
 cloak::core::Result<void> ChatUi::run_main_loop() {
     auto screen = ScreenInteractive::Fullscreen();
 
-    // ── Shared UI state ────────────────────────────────────────────────────────
-    std::mutex                                          state_mutex;
+    // ── Shared state (written by background threads, read by renderer) ─────────
+    std::mutex                                           state_mutex;
     std::vector<cloak::app::ChatApplication::MessageEntry> messages;
     std::vector<cloak::app::ChatApplication::PeerInfo>     peers;
     std::string                                            status_line = "Ready";
     std::string                                            invite_code_str;
 
-    // ── UI control variables ───────────────────────────────────────────────────
+    // ── UI-thread-only state ───────────────────────────────────────────────────
     std::string  input_text;
     std::string  join_code_input;
     std::string  direct_host_input;
     std::string  direct_port_input;
-    bool         show_invite_modal  = false;
-    bool         show_join_modal    = false;
-    bool         show_direct_modal  = false;
-    bool         invite_generating  = false;
-    int          peer_selected      = 0;
+    bool         show_invite_modal = false;
+    bool         show_join_modal   = false;
+    bool         show_direct_modal = false;
+    bool         invite_generating = false;
+    int          peer_selected     = 0;
+    // Tab: 0 = main UI, 1 = invite modal, 2 = join modal, 3 = direct modal
+    int          active_tab        = 0;
 
-    // Peer name list for the Menu component.
     std::vector<std::string> peer_entries;
 
-    // ── Register callbacks (called from background threads) ───────────────────
+    // ── Initial peer load ──────────────────────────────────────────────────────
+    {
+        peers = app_.get_peers();
+        for (const auto& p : peers) {
+            std::string label = (p.online ? " \u25cf " : " \u25cb ") + p.name;
+            if (p.verified)     label += " \u2713";
+            if (p.queued_count) label += " [" + std::to_string(p.queued_count) + "]";
+            peer_entries.push_back(label);
+        }
+    }
+
+    // ── Callbacks from background threads ──────────────────────────────────────
+    auto post_refresh = [&] { screen.PostEvent(Event::Custom); };
+
     app_.set_message_callback([&](std::string from, std::string text, bool is_mine) {
         {
             std::lock_guard lock(state_mutex);
-            messages.push_back({std::move(from), std::move(text), "", is_mine});
+            messages.push_back({from, text, "", is_mine});
         }
-        screen.PostEvent(Event::Custom);
+        post_refresh();
     });
-
     app_.set_peer_change_callback([&]() {
         {
             std::lock_guard lock(state_mutex);
@@ -69,61 +133,40 @@ cloak::core::Result<void> ChatUi::run_main_loop() {
                 if (p.queued_count) label += " [" + std::to_string(p.queued_count) + "]";
                 peer_entries.push_back(label);
             }
-            // Clamp selection.
-            if (!peers.empty() && peer_selected >= static_cast<int>(peers.size()))
-                peer_selected = static_cast<int>(peers.size()) - 1;
         }
-        screen.PostEvent(Event::Custom);
+        post_refresh();
     });
-
     app_.set_system_callback([&](std::string msg) {
         {
             std::lock_guard lock(state_mutex);
-            status_line = std::move(msg);
+            status_line = msg;
         }
-        screen.PostEvent(Event::Custom);
+        post_refresh();
     });
 
-    // Initial peer load (may already have connections from --connect).
-    {
-        peers = app_.get_peers();
-        for (const auto& p : peers) {
-            std::string label = (p.online ? " \u25cf " : " \u25cb ") + p.name;
-            if (p.verified)     label += " \u2713";
-            if (p.queued_count) label += " [" + std::to_string(p.queued_count) + "]";
-            peer_entries.push_back(label);
-        }
-    }
+    // ── Components ─────────────────────────────────────────────────────────────
 
-    // ── Helper: post and run task on UI thread ─────────────────────────────────
-    auto post_refresh = [&] { screen.PostEvent(Event::Custom); };
-
-    // ── Components ────────────────────────────────────────────────────────────
-
-    // Message input (Enter sends).
+    // Message input + Send button.
     InputOption inp_opt;
     inp_opt.on_enter = [&] {
         if (input_text.empty()) return;
-        std::string text = input_text;
-        input_text.clear();
-        std::thread([&, text]() {
-            static_cast<void>(app_.send_text_to_current(text));
-        }).detach();
+        std::string t = input_text; input_text.clear();
+        std::thread([&, t]() { static_cast<void>(app_.send_text_to_current(t)); }).detach();
     };
-    auto msg_input = Input(&input_text, "Message...", inp_opt);
-
-    // Send button.
-    auto send_btn = Button("  Send  ", [&] {
+    auto msg_input = with_paste(Input(&input_text, "Type a message...", inp_opt), &input_text);
+    auto send_btn  = Button("  Send  ", [&] {
         if (input_text.empty()) return;
-        std::string text = input_text;
-        input_text.clear();
-        std::thread([&, text]() {
-            static_cast<void>(app_.send_text_to_current(text));
-        }).detach();
+        std::string t = input_text; input_text.clear();
+        std::thread([&, t]() { static_cast<void>(app_.send_text_to_current(t)); }).detach();
     }, ButtonOption::Ascii());
 
-    // Search LAN button — discovery already runs; this refreshes the display.
+    // Left panel: action buttons.
     auto search_btn = Button(" [\u25ce] Search LAN ", [&] {
+        {
+            std::lock_guard lock(state_mutex);
+            status_line = "Searching LAN...";
+        }
+        post_refresh();
         std::thread([&]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(300));
             std::lock_guard lock(state_mutex);
@@ -135,18 +178,17 @@ cloak::core::Result<void> ChatUi::run_main_loop() {
                 if (p.queued_count) label += " [" + std::to_string(p.queued_count) + "]";
                 peer_entries.push_back(label);
             }
+            status_line = peers.empty() ? "No peers found" :
+                std::to_string(peers.size()) + " peer(s) found";
             post_refresh();
         }).detach();
-        std::lock_guard lock(state_mutex);
-        status_line = "Searching LAN...";
-        post_refresh();
     }, ButtonOption::Ascii());
 
-    // Invite Code button.
     auto invite_btn = Button(" [\u2709] Invite Code ", [&] {
-        show_invite_modal  = true;
-        invite_generating  = true;
-        invite_code_str    = "Generating...";
+        show_invite_modal = true;
+        active_tab        = 1;
+        invite_generating = true;
+        invite_code_str   = "Generating...";
         post_refresh();
         std::thread([&]() {
             auto res = app_.make_invite_code();
@@ -160,40 +202,80 @@ cloak::core::Result<void> ChatUi::run_main_loop() {
         }).detach();
     }, ButtonOption::Ascii());
 
-    // Join via Invite Code button.
     auto join_btn = Button(" [\u21aa] Join via Code ", [&] {
         join_code_input   = "";
         show_join_modal   = true;
+        active_tab        = 2;
         post_refresh();
     }, ButtonOption::Ascii());
 
-    // Direct Connect button.
     auto direct_btn = Button(" [\u27a1] Direct Connect ", [&] {
         direct_host_input = "";
         direct_port_input = "";
         show_direct_modal = true;
+        active_tab        = 3;
         post_refresh();
     }, ButtonOption::Ascii());
 
-    // Close invite modal.
-    auto close_invite_btn = Button("  Close  ", [&] {
-        show_invite_modal = false;
+    // Peer list menu.
+    MenuOption menu_opt = MenuOption::Vertical();
+    menu_opt.on_change = [&] {
+        if (peer_selected >= 0)
+            app_.switch_peer(static_cast<size_t>(peer_selected));
+        std::lock_guard lock(state_mutex);
+        messages.clear();
+        status_line = peers.empty() ? "Ready" :
+            "Chat with " + peers[static_cast<size_t>(peer_selected)].name;
+        post_refresh();
+    };
+    auto peer_menu = Menu(&peer_entries, &peer_selected, menu_opt);
+
+    // Copy-address button.
+    std::string copy_addr_label = " Copy Addr ";
+    auto copy_addr_btn = Button(&copy_addr_label, [&] {
+        const uint16_t    port = app_.my_listen_port();
+        const std::string addr = app_.my_lan_ip() + ":" + std::to_string(port);
+        clip_set(addr);
+        copy_addr_label = " Copied! \u2713 ";
+        std::thread([&] {
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            copy_addr_label = " Copy Addr ";
+            post_refresh();
+        }).detach();
+        post_refresh();
     }, ButtonOption::Ascii());
 
-    // Join modal inputs + buttons.
-    InputOption join_opt;
-    join_opt.on_enter = [&] { /* handled by Connect button */ };
-    auto join_input = Input(&join_code_input, "Paste invite code...", join_opt);
+    // ── Invite modal components ────────────────────────────────────────────────
+    std::string copy_code_label = "  Copy Code  ";
+    auto copy_code_btn = Button(&copy_code_label, [&] {
+        clip_set(invite_code_str);
+        copy_code_label = "  Copied! \u2713  ";
+        std::thread([&] {
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            copy_code_label = "  Copy Code  ";
+            post_refresh();
+        }).detach();
+        post_refresh();
+    }, ButtonOption::Ascii());
+
+    auto close_invite_btn = Button("  Close  ", [&] {
+        show_invite_modal = false;
+        active_tab        = 0;
+        post_refresh();
+    }, ButtonOption::Ascii());
+
+    // ── Join modal components ──────────────────────────────────────────────────
+    auto join_input = with_paste(
+        Input(&join_code_input, "Type or paste invite code here..."),
+        &join_code_input);
 
     auto connect_join_btn = Button("  Connect  ", [&] {
         if (join_code_input.empty()) return;
         std::string code = join_code_input;
         show_join_modal  = false;
+        active_tab       = 0;
         join_code_input  = "";
-        {
-            std::lock_guard lock(state_mutex);
-            status_line = "Connecting via invite...";
-        }
+        { std::lock_guard lock(state_mutex); status_line = "Connecting via invite..."; }
         post_refresh();
         std::thread([&, code]() {
             auto res = app_.connect_invite(code);
@@ -205,25 +287,35 @@ cloak::core::Result<void> ChatUi::run_main_loop() {
 
     auto cancel_join_btn = Button("  Cancel  ", [&] {
         show_join_modal = false;
+        active_tab      = 0;
+        post_refresh();
     }, ButtonOption::Ascii());
 
-    // Direct connect modal inputs + buttons.
-    auto host_input = Input(&direct_host_input, "Host (e.g. 192.168.1.5)");
-    auto port_input = Input(&direct_port_input, "Port (e.g. 5000)");
+    // ── Direct connect modal components ───────────────────────────────────────
+    auto host_input = with_paste(
+        Input(&direct_host_input, "IP or hostname (e.g. 192.168.1.5)"),
+        &direct_host_input);
+    auto port_input = with_paste(
+        Input(&direct_port_input, "Port (e.g. 5000)"),
+        &direct_port_input);
 
     auto do_direct_btn = Button("  Connect  ", [&] {
         if (direct_host_input.empty() || direct_port_input.empty()) return;
         std::string host = direct_host_input;
         uint16_t    port = 0;
         try { port = static_cast<uint16_t>(std::stoi(direct_port_input)); }
-        catch (...) { return; }
-        show_direct_modal  = false;
-        direct_host_input  = "";
-        direct_port_input  = "";
-        {
+        catch (...) {
             std::lock_guard lock(state_mutex);
-            status_line = "Connecting to " + host + ":" + std::to_string(port) + "...";
+            status_line = "Invalid port number";
+            post_refresh();
+            return;
         }
+        show_direct_modal = false;
+        active_tab        = 0;
+        direct_host_input = "";
+        direct_port_input = "";
+        { std::lock_guard lock(state_mutex);
+          status_line = "Connecting to " + host + ":" + std::to_string(port) + "..."; }
         post_refresh();
         std::thread([&, host, port]() {
             auto res = app_.connect_to(host, port);
@@ -235,53 +327,45 @@ cloak::core::Result<void> ChatUi::run_main_loop() {
 
     auto cancel_direct_btn = Button("  Cancel  ", [&] {
         show_direct_modal = false;
+        active_tab        = 0;
+        post_refresh();
     }, ButtonOption::Ascii());
 
-    // Peer list menu.
-    MenuOption menu_opt = MenuOption::Vertical();
-    menu_opt.on_change = [&] {
-        int sel = peer_selected;
-        app_.switch_peer(static_cast<size_t>(sel));
-        // Clear log when switching peer (new context).
-        std::lock_guard lock(state_mutex);
-        messages.clear();
-        status_line = peers.empty() ? "Ready" :
-                      "Chat with " + peers[static_cast<size_t>(sel)].name;
-        post_refresh();
-    };
-    auto peer_menu = Menu(&peer_entries, &peer_selected, menu_opt);
+    // ── Container assembly ─────────────────────────────────────────────────────
+    // KEY FIX: left panel and input row are BOTH inside main_comp (tab 0).
+    // This means mouse clicks on ANY button and keyboard events in the
+    // message input all work simultaneously when no modal is open.
 
-    // ── Container assembly ────────────────────────────────────────────────────
-    // Left panel interactive elements.
-    auto left_btns = Container::Vertical({
+    auto left_panel_comp = Container::Vertical({
         search_btn, invite_btn, join_btn, direct_btn,
         peer_menu,
+        copy_addr_btn,
     });
-
-    // Right panel interactive elements.
     auto input_row = Container::Horizontal({msg_input, send_btn});
+    auto main_comp = Container::Horizontal({left_panel_comp, input_row});
 
-    // Modal interactive elements.
-    auto invite_modal_comp  = Container::Vertical({close_invite_btn});
-    auto join_modal_comp    = Container::Vertical({
+    auto invite_modal_comp = Container::Vertical({
+        copy_code_btn, close_invite_btn,
+    });
+    auto join_modal_comp = Container::Vertical({
         join_input,
         Container::Horizontal({connect_join_btn, cancel_join_btn}),
     });
-    auto direct_modal_comp  = Container::Vertical({
+    auto direct_modal_comp = Container::Vertical({
         host_input, port_input,
         Container::Horizontal({do_direct_btn, cancel_direct_btn}),
     });
 
-    // Route focus to whichever modal is open, else the normal UI.
-    auto all_comp = Container::Tab(
-        {left_btns, input_row,
-         invite_modal_comp, join_modal_comp, direct_modal_comp},
-        // Tab index is managed by the renderer below via CatchEvent.
-        nullptr
-    );
+    // Tab 0 = main_comp, 1 = invite, 2 = join, 3 = direct.
+    auto root_comp = Container::Tab({
+        main_comp,
+        invite_modal_comp,
+        join_modal_comp,
+        direct_modal_comp,
+    }, &active_tab);
 
-    // ── Master renderer ───────────────────────────────────────────────────────
-    auto main_renderer = Renderer(all_comp, [&]() -> Element {
+    // ── Master renderer ────────────────────────────────────────────────────────
+    auto ui = Renderer(root_comp, [&]() -> Element {
 
         // Snapshot shared state.
         std::vector<cloak::app::ChatApplication::MessageEntry> msgs_snap;
@@ -299,91 +383,70 @@ cloak::core::Result<void> ChatUi::run_main_loop() {
         // ── Status bar ────────────────────────────────────────────────────────
         const std::string fp_short = app_.my_fingerprint().substr(0, 12) + "...";
         auto status_bar = hbox({
-            text(" " + app_.my_name() + " ") | bold
-                | color(Color::Black) | bgcolor(Color::Blue),
+            text(" " + app_.my_name() + " ") | bold | color(Color::Black) | bgcolor(Color::Blue),
             text(" FP: " + fp_short + " ") | color(Color::GrayLight),
             separator(),
-            text(" " + std::to_string(peers_snap.size()) + " peer(s) ")
-                | color(Color::Cyan),
+            text(" " + std::to_string(peers_snap.size()) + " peer(s) ") | color(Color::Cyan),
             separator(),
             text(" " + sys_snap + " ") | color(Color::Green) | flex,
             text(" Cloak 0.4 ") | color(Color::GrayDark),
         });
 
-        // ── Peer list (left panel) ─────────────────────────────────────────────
-        Element peer_panel;
-        {
-            Elements peer_section;
-            peer_section.push_back(
-                text(" Peers ") | bold | color(Color::Yellow));
-            peer_section.push_back(separator());
-            peer_section.push_back(search_btn->Render());
-            peer_section.push_back(invite_btn->Render());
-            peer_section.push_back(join_btn->Render());
-            peer_section.push_back(direct_btn->Render());
-            peer_section.push_back(separator());
+        // ── Left panel ────────────────────────────────────────────────────────
+        const uint16_t    listen_port = app_.my_listen_port();
+        const std::string my_addr     = app_.my_lan_ip() + ":" +
+            (listen_port ? std::to_string(listen_port) : "...");
 
-            if (peer_entries.empty()) {
-                peer_section.push_back(
-                    text(" No peers found ") | color(Color::GrayDark) | italic);
-                peer_section.push_back(
-                    text(" Click Search LAN ") | color(Color::GrayDark));
-                peer_section.push_back(
-                    text(" or use Invite Code ") | color(Color::GrayDark));
-            } else {
-                peer_section.push_back(text(" Select peer: ") | color(Color::GrayLight));
-                peer_section.push_back(peer_menu->Render() | flex);
-            }
+        Elements left_elems;
+        left_elems.push_back(text(" Peers ") | bold | color(Color::Yellow));
+        left_elems.push_back(separator());
+        left_elems.push_back(search_btn->Render());
+        left_elems.push_back(invite_btn->Render());
+        left_elems.push_back(join_btn->Render());
+        left_elems.push_back(direct_btn->Render());
+        left_elems.push_back(separator());
 
-            peer_panel = vbox(peer_section)
-                | border
-                | size(WIDTH, EQUAL, 24);
+        if (peer_entries.empty()) {
+            left_elems.push_back(text(" No peers found ") | color(Color::GrayDark) | italic);
+            left_elems.push_back(text(" Use Search or  ") | color(Color::GrayDark));
+            left_elems.push_back(text(" Invite Code    ") | color(Color::GrayDark));
+        } else {
+            left_elems.push_back(text(" Select peer: ") | color(Color::GrayLight));
+            left_elems.push_back(peer_menu->Render() | flex);
         }
 
-        // ── Message area (right panel) ─────────────────────────────────────────
+        left_elems.push_back(separator());
+        left_elems.push_back(text(" Your address: ") | color(Color::GrayDark));
+        left_elems.push_back(text(" " + my_addr + " ") | bold | color(Color::Yellow));
+        left_elems.push_back(copy_addr_btn->Render());
+
+        auto left_panel = vbox(left_elems) | border | size(WIDTH, EQUAL, 27);
+
+        // ── Message area ──────────────────────────────────────────────────────
         Elements msg_elems;
         if (msgs_snap.empty()) {
+            msg_elems.push_back(text("  No messages yet.") | color(Color::GrayDark));
             msg_elems.push_back(
-                text("  No messages yet.") | color(Color::GrayDark));
-            if (peers_snap.empty()) {
-                msg_elems.push_back(
-                    text("  Use the buttons on the left to find or connect to a peer.")
-                    | color(Color::GrayDark));
-            } else {
-                msg_elems.push_back(
-                    text("  Type a message below and press Send.")
-                    | color(Color::GrayDark));
-            }
+                text("  Connect to a peer and start typing.") | color(Color::GrayDark));
         } else {
-            std::string current_peer_name =
-                (peer_selected >= 0 &&
-                 peer_selected < static_cast<int>(peers_snap.size()))
-                ? peers_snap[static_cast<size_t>(peer_selected)].name
-                : "";
-
             for (const auto& m : msgs_snap) {
                 if (m.is_mine) {
-                    msg_elems.push_back(
-                        hbox({
-                            filler(),
-                            text(" " + m.sender + ": " + m.text + " ")
-                                | color(Color::Cyan)
-                                | bgcolor(Color::NavyBlue),
-                        }));
+                    msg_elems.push_back(hbox({
+                        filler(),
+                        text(" " + m.sender + ": " + m.text + " ")
+                            | color(Color::Cyan) | bgcolor(Color::NavyBlue),
+                    }));
                 } else {
-                    msg_elems.push_back(
-                        hbox({
-                            text(" " + m.sender + ": " + m.text + " ")
-                                | color(Color::White),
-                            filler(),
-                        }));
+                    msg_elems.push_back(hbox({
+                        text(" " + m.sender + ": " + m.text + " ") | color(Color::White),
+                        filler(),
+                    }));
                 }
             }
         }
 
-        auto msgs_box  = vbox(msg_elems) | flex | frame;
         auto right_panel = vbox({
-            msgs_box | flex,
+            vbox(msg_elems) | flex | frame,
             separator(),
             hbox({
                 msg_input->Render() | flex,
@@ -391,38 +454,40 @@ cloak::core::Result<void> ChatUi::run_main_loop() {
             }),
         }) | flex | border;
 
-        // ── Main body ──────────────────────────────────────────────────────────
-        auto body     = hbox({peer_panel, right_panel});
-        auto main_doc = vbox({status_bar, body | flex});
+        // ── Base layout ───────────────────────────────────────────────────────
+        auto main_doc = vbox({
+            status_bar,
+            hbox({left_panel, right_panel}) | flex,
+        });
 
-        // ── Invite code modal ──────────────────────────────────────────────────
+        // ── Invite modal overlay ───────────────────────────────────────────────
         if (show_invite_modal) {
             auto modal_doc = vbox({
-                text(" Invite Code ") | bold | center | color(Color::Yellow),
+                text(" \u2709 Invite Code ") | bold | center | color(Color::Yellow),
                 separator(),
-                text("Share this code with the peer you want to connect to:")
-                    | color(Color::GrayLight),
+                text("Share this code with your peer:") | color(Color::GrayLight),
                 separator(),
-                paragraph(invite_snap)
-                    | color(Color::Green) | bold | center,
+                paragraph(invite_snap) | color(Color::Green) | bold | center,
                 separator(),
                 invite_generating
                     ? (text("  Waiting for peer to connect...") | color(Color::GrayDark))
-                    : (text("  Relay host is waiting for the peer.") | color(Color::GrayDark)),
+                    : (text("  Listening — peer can now join.") | color(Color::GrayDark)),
                 separator(),
-                close_invite_btn->Render() | center,
-            }) | border | size(WIDTH, EQUAL, 62) | center | clear_under;
-
+                hbox({
+                    copy_code_btn->Render(),
+                    text("  "),
+                    close_invite_btn->Render(),
+                }) | center,
+            }) | border | size(WIDTH, EQUAL, 64) | center | clear_under;
             return dbox({main_doc | dim, modal_doc});
         }
 
-        // ── Join via invite code modal ─────────────────────────────────────────
+        // ── Join modal overlay ─────────────────────────────────────────────────
         if (show_join_modal) {
             auto modal_doc = vbox({
-                text(" Join via Invite Code ") | bold | center | color(Color::Yellow),
+                text(" \u21aa Join via Invite Code ") | bold | center | color(Color::Yellow),
                 separator(),
-                text("Paste the code you received from your peer:")
-                    | color(Color::GrayLight),
+                text("Type or paste the code from your peer:") | color(Color::GrayLight),
                 separator(),
                 join_input->Render() | border,
                 separator(),
@@ -431,19 +496,24 @@ cloak::core::Result<void> ChatUi::run_main_loop() {
                     text("  "),
                     cancel_join_btn->Render(),
                 }) | center,
-            }) | border | size(WIDTH, EQUAL, 62) | center | clear_under;
-
+                separator(),
+                text("  Tip: Ctrl+V to paste  |  Press Connect or Enter")
+                    | color(Color::GrayDark) | center,
+            }) | border | size(WIDTH, EQUAL, 64) | center | clear_under;
             return dbox({main_doc | dim, modal_doc});
         }
 
-        // ── Direct connect modal ───────────────────────────────────────────────
+        // ── Direct connect modal overlay ───────────────────────────────────────
         if (show_direct_modal) {
             auto modal_doc = vbox({
-                text(" Direct Connect ") | bold | center | color(Color::Yellow),
+                text(" \u27a1 Direct Connect ") | bold | center | color(Color::Yellow),
                 separator(),
-                text("Host / IP:") | color(Color::GrayLight),
+                text("Enter the address shown in their bottom-left panel:")
+                    | color(Color::GrayLight),
+                separator(),
+                text(" Host / IP:") | color(Color::GrayLight),
                 host_input->Render() | border,
-                text("Port:") | color(Color::GrayLight),
+                text(" Port:") | color(Color::GrayLight),
                 port_input->Render() | border,
                 separator(),
                 hbox({
@@ -451,23 +521,24 @@ cloak::core::Result<void> ChatUi::run_main_loop() {
                     text("  "),
                     cancel_direct_btn->Render(),
                 }) | center,
-            }) | border | size(WIDTH, EQUAL, 50) | center | clear_under;
-
+                separator(),
+                text("  Tip: type or Ctrl+V to paste  |  Tab to switch fields")
+                    | color(Color::GrayDark) | center,
+            }) | border | size(WIDTH, EQUAL, 58) | center | clear_under;
             return dbox({main_doc | dim, modal_doc});
         }
 
         return main_doc;
     });
 
-    // ── Escape closes modals; Ctrl-Q quits ────────────────────────────────────
-    auto with_keys = CatchEvent(main_renderer, [&](Event event) -> bool {
-        if (event == Event::Escape) {
-            if (show_invite_modal) { show_invite_modal = false; return true; }
-            if (show_join_modal)   { show_join_modal   = false; return true; }
-            if (show_direct_modal) { show_direct_modal = false; return true; }
+    // ── Global key bindings ────────────────────────────────────────────────────
+    auto with_keys = CatchEvent(ui, [&](Event e) -> bool {
+        if (e == Event::Escape) {
+            if (show_invite_modal) { show_invite_modal = false; active_tab = 0; return true; }
+            if (show_join_modal)   { show_join_modal   = false; active_tab = 0; return true; }
+            if (show_direct_modal) { show_direct_modal = false; active_tab = 0; return true; }
         }
-        // Ctrl-Q to quit.
-        if (event == Event::Character('\x11')) {
+        if (e == Event::Character('\x11')) { // Ctrl+Q
             screen.ExitLoopClosure()();
             return true;
         }

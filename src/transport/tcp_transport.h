@@ -33,8 +33,8 @@ private:
 };
 
 // One-shot TCP listener.  Binds immediately (port 0 → OS picks a free port),
-// exposes the bound port, then blocks on accept_one() for a single connection.
-// Designed for relay-free LAN invite codes.
+// exposes the bound port, then accepts connections one at a time on demand.
+// Designed for relay-free LAN invite codes AND the main listen loop.
 class TcpListener {
 public:
     // Bind on `preferred_port` (0 = let OS pick).  Returns error on bind failure.
@@ -43,8 +43,12 @@ public:
     // Port the OS assigned (valid immediately after bind()).
     uint16_t local_port() const;
 
-    // Block until one inbound connection arrives.  Can only be called once.
-    cloak::core::Result<std::unique_ptr<Transport>> accept_one();
+    // Block until one inbound connection arrives.  May be called repeatedly.
+    // Returns error if the acceptor is closed or a network error occurs.
+    cloak::core::Result<std::unique_ptr<Transport>> accept();
+
+    // Close the acceptor (unblocks a pending accept()).
+    void close();
 
     // Non-copyable, movable.
     TcpListener(TcpListener&&)            = default;

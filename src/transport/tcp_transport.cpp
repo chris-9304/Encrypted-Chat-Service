@@ -138,19 +138,24 @@ uint16_t TcpListener::local_port() const {
     return acceptor_.local_endpoint().port();
 }
 
-cloak::core::Result<std::unique_ptr<Transport>> TcpListener::accept_one() {
+cloak::core::Result<std::unique_ptr<Transport>> TcpListener::accept() {
     try {
         boost::asio::ip::tcp::socket socket(*io_);
         acceptor_.accept(socket);
-        acceptor_.close();
         socket.set_option(boost::asio::ip::tcp::no_delay(true));
         return std::unique_ptr<Transport>(
-            new TcpTransport(std::move(io_), std::move(socket)));
+            new TcpTransport(std::make_unique<boost::asio::io_context>(),
+                             std::move(socket)));
     } catch (const boost::system::system_error& e) {
         return std::unexpected(cloak::core::Error::from(
             cloak::core::ErrorCode::TransportError,
             std::string("TcpListener accept failed: ") + e.what()));
     }
+}
+
+void TcpListener::close() {
+    boost::system::error_code ec;
+    acceptor_.close(ec);
 }
 
 } // namespace cloak::transport
